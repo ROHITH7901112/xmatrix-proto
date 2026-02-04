@@ -101,6 +101,20 @@ type EntityType = 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
 // Generate unique ID
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+// Helper function to calculate next sequential code
+function getNextCode(existingCodes: string[], prefix: string): string {
+    const numbers = existingCodes
+        .filter(code => code.startsWith(prefix))
+        .map(code => {
+            const match = code.match(new RegExp(`${prefix}-(\\d+)`));
+            return match ? parseInt(match[1], 10) : 0;
+        })
+        .filter(num => !isNaN(num));
+    
+    const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
+    return `${prefix}-${maxNumber + 1}`;
+}
+
 // Health status badge
 function HealthBadge({ health }: { health: HealthStatus }) {
     const config = {
@@ -291,18 +305,21 @@ function SectionHeader({ icon: Icon, title, count, onAdd, addLabel }: { icon: Re
 // LTO Form
 function LTOForm({
     initialData,
+    existingItems,
     onSubmit,
     onCancel,
     isLoading
 }: {
     initialData?: LongTermObjective;
+    existingItems?: LongTermObjective[];
     onSubmit: (data: LongTermObjective) => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'LTO') : '';
     const [formData, setFormData] = useState<LongTermObjective>(initialData || {
         id: generateId('lto'),
-        code: '',
+        code: nextCode,
         title: '',
         description: '',
         timeframe: '2025-2028',
@@ -341,18 +358,21 @@ function LTOForm({
 // AO Form
 function AOForm({
     initialData,
+    existingItems,
     onSubmit,
     onCancel,
     isLoading
 }: {
     initialData?: AnnualObjective;
+    existingItems?: AnnualObjective[];
     onSubmit: (data: AnnualObjective) => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'AO') : '';
     const [formData, setFormData] = useState<AnnualObjective>(initialData || {
         id: generateId('ao'),
-        code: '',
+        code: nextCode,
         title: '',
         description: '',
         year: new Date().getFullYear(),
@@ -395,19 +415,22 @@ function AOForm({
 // Initiative Form
 function InitiativeForm({
     initialData,
+    existingItems,
     onSubmit,
     onCancel,
     isLoading
 }: {
     initialData?: Initiative;
+    existingItems?: Initiative[];
     onSubmit: (data: Initiative) => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
     const today = new Date().toISOString().split('T')[0];
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'I') : '';
     const [formData, setFormData] = useState<Initiative>(initialData || {
         id: generateId('init'),
-        code: '',
+        code: nextCode,
         title: '',
         description: '',
         priority: 'medium',
@@ -462,18 +485,21 @@ function InitiativeForm({
 // KPI Form
 function KPIForm({
     initialData,
+    existingItems,
     onSubmit,
     onCancel,
     isLoading
 }: {
     initialData?: KPI;
+    existingItems?: KPI[];
     onSubmit: (data: KPI) => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'K') : '';
     const [formData, setFormData] = useState<KPI>(initialData || {
         id: generateId('kpi'),
-        code: '',
+        code: nextCode,
         title: '',
         unit: '%',
         currentValue: 0,
@@ -1107,6 +1133,7 @@ export default function ManagePage() {
             <Modal isOpen={modalType === 'lto'} onClose={closeModal} title={editingItem ? 'Edit Long-Term Objective' : 'Add Long-Term Objective'}>
                 <LTOForm
                     initialData={editingItem as LongTermObjective | undefined}
+                    existingItems={data?.longTermObjectives}
                     onSubmit={editingItem ? handleUpdateLTO : handleCreateLTO}
                     onCancel={closeModal}
                     isLoading={isSaving}
@@ -1116,6 +1143,7 @@ export default function ManagePage() {
             <Modal isOpen={modalType === 'ao'} onClose={closeModal} title={editingItem ? 'Edit Annual Objective' : 'Add Annual Objective'}>
                 <AOForm
                     initialData={editingItem as AnnualObjective | undefined}
+                    existingItems={data?.annualObjectives}
                     onSubmit={editingItem ? handleUpdateAO : handleCreateAO}
                     onCancel={closeModal}
                     isLoading={isSaving}
@@ -1125,6 +1153,7 @@ export default function ManagePage() {
             <Modal isOpen={modalType === 'initiative'} onClose={closeModal} title={editingItem ? 'Edit Initiative' : 'Add Initiative'}>
                 <InitiativeForm
                     initialData={editingItem as Initiative | undefined}
+                    existingItems={data?.initiatives}
                     onSubmit={editingItem ? handleUpdateInitiative : handleCreateInitiative}
                     onCancel={closeModal}
                     isLoading={isSaving}
@@ -1134,6 +1163,7 @@ export default function ManagePage() {
             <Modal isOpen={modalType === 'kpi'} onClose={closeModal} title={editingItem ? 'Edit KPI' : 'Add KPI'}>
                 <KPIForm
                     initialData={editingItem as KPI | undefined}
+                    existingItems={data?.kpis}
                     onSubmit={editingItem ? handleUpdateKPI : handleCreateKPI}
                     onCancel={closeModal}
                     isLoading={isSaving}

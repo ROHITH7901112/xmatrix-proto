@@ -20,10 +20,10 @@ const GRID = {
   diamondSize: 180,
 
   // Padding around entire matrix (reduced for compact layout)
-  padding: 40,
+  padding: 50,
 
   // Gap between KPI section and Owner section
-  ownerGap: 8,
+  ownerGap: 15,
 
   // Owner section header height
   ownerHeaderHeight: 24,
@@ -553,6 +553,7 @@ export function XMatrix() {
       >
         <LTOForm
           initialData={editingItem as any}
+          existingItems={data.longTermObjectives}
           onSubmit={editingItem ? handleUpdateLTO : handleCreateLTO}
           onDelete={editingItem ? () => handleDeleteLTO(editingItem.id) : undefined}
           onCancel={closeModal}
@@ -567,6 +568,7 @@ export function XMatrix() {
       >
         <AOForm
           initialData={editingItem as any}
+          existingItems={data.annualObjectives}
           onSubmit={editingItem ? handleUpdateAO : handleCreateAO}
           onDelete={editingItem ? () => handleDeleteAO(editingItem.id) : undefined}
           onCancel={closeModal}
@@ -581,6 +583,7 @@ export function XMatrix() {
       >
         <InitiativeForm
           initialData={editingItem as any}
+          existingItems={data.initiatives}
           onSubmit={editingItem ? handleUpdateInitiative : handleCreateInitiative}
           onDelete={editingItem ? () => handleDeleteInitiative(editingItem.id) : undefined}
           onCancel={closeModal}
@@ -595,6 +598,7 @@ export function XMatrix() {
       >
         <KPIForm
           initialData={editingItem as any}
+          existingItems={data.kpis}
           onSubmit={editingItem ? handleUpdateKPI : handleCreateKPI}
           onDelete={editingItem ? () => handleDeleteKPI(editingItem.id) : undefined}
           onCancel={closeModal}

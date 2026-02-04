@@ -6,6 +6,20 @@ import { X, Save, Loader2, Trash2 } from 'lucide-react';
 import { LongTermObjective, AnnualObjective, Initiative, KPI, Owner, HealthStatus, ResponsibilityType, Trend } from '@/lib/types';
 import { generateId } from '@/lib/utils';
 
+// Helper function to calculate next sequential code
+function getNextCode(existingCodes: string[], prefix: string): string {
+    const numbers = existingCodes
+        .filter(code => code.startsWith(prefix))
+        .map(code => {
+            const match = code.match(new RegExp(`${prefix}-(\\d+)`));
+            return match ? parseInt(match[1], 10) : 0;
+        })
+        .filter(num => !isNaN(num));
+    
+    const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
+    return `${prefix}-${maxNumber + 1}`;
+}
+
 // Modal component
 export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
     if (!isOpen) return null;
@@ -86,20 +100,23 @@ export function FormTextarea({ label, ...props }: { label: string } & React.Text
 // LTO Form
 export function LTOForm({
     initialData,
+    existingItems,
     onSubmit,
     onDelete,
     onCancel,
     isLoading
 }: {
     initialData?: LongTermObjective;
+    existingItems?: LongTermObjective[];
     onSubmit: (data: LongTermObjective) => void;
     onDelete?: () => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'LTO') : '';
     const [formData, setFormData] = useState<LongTermObjective>(initialData || {
         id: generateId('lto'),
-        code: '',
+        code: nextCode,
         title: '',
         description: '',
         timeframe: '2025-2028',
@@ -115,7 +132,7 @@ export function LTOForm({
             <FormInput label="Title" placeholder="Market Leadership in Enterprise Solutions" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
             <FormTextarea label="Description" placeholder="Describe the long-term objective..." value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
             <FormSelect
-                label="Health Status"
+                label="Status"
                 value={formData.health}
                 onChange={(e) => setFormData({ ...formData, health: e.target.value as HealthStatus })}
                 options={[
@@ -150,20 +167,23 @@ export function LTOForm({
 // AO Form
 export function AOForm({
     initialData,
+    existingItems,
     onSubmit,
     onDelete,
     onCancel,
     isLoading
 }: {
     initialData?: AnnualObjective;
+    existingItems?: AnnualObjective[];
     onSubmit: (data: AnnualObjective) => void;
     onDelete?: () => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'AO') : '';
     const [formData, setFormData] = useState<AnnualObjective>(initialData || {
         id: generateId('ao'),
-        code: '',
+        code: nextCode,
         title: '',
         description: '',
         year: new Date().getFullYear(),
@@ -181,7 +201,7 @@ export function AOForm({
             <FormTextarea label="Description" placeholder="Describe the annual objective..." value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
             <div className="grid grid-cols-2 gap-4">
                 <FormSelect
-                    label="Health Status"
+                    label="Status"
                     value={formData.health}
                     onChange={(e) => setFormData({ ...formData, health: e.target.value as HealthStatus })}
                     options={[
@@ -218,21 +238,24 @@ export function AOForm({
 // Initiative Form
 export function InitiativeForm({
     initialData,
+    existingItems,
     onSubmit,
     onDelete,
     onCancel,
     isLoading
 }: {
     initialData?: Initiative;
+    existingItems?: Initiative[];
     onSubmit: (data: Initiative) => void;
     onDelete?: () => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
     const today = new Date().toISOString().split('T')[0];
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'I') : '';
     const [formData, setFormData] = useState<Initiative>(initialData || {
         id: generateId('init'),
-        code: '',
+        code: nextCode,
         title: '',
         description: '',
         priority: 'medium',
@@ -264,7 +287,7 @@ export function InitiativeForm({
                 <FormInput label="End Date" type="date" value={formData.endDate} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} required />
             </div>
             <FormSelect
-                label="Health Status"
+                label="Status"
                 value={formData.health}
                 onChange={(e) => setFormData({ ...formData, health: e.target.value as HealthStatus })}
                 options={[
@@ -299,20 +322,23 @@ export function InitiativeForm({
 // KPI Form
 export function KPIForm({
     initialData,
+    existingItems,
     onSubmit,
     onDelete,
     onCancel,
     isLoading
 }: {
     initialData?: KPI;
+    existingItems?: KPI[];
     onSubmit: (data: KPI) => void;
     onDelete?: () => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'K') : '';
     const [formData, setFormData] = useState<KPI>(initialData || {
         id: generateId('kpi'),
-        code: '',
+        code: nextCode,
         title: '',
         unit: '%',
         currentValue: 0,
@@ -336,7 +362,7 @@ export function KPIForm({
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <FormSelect
-                    label="Health Status"
+                    label="Status"
                     value={formData.health}
                     onChange={(e) => setFormData({ ...formData, health: e.target.value as HealthStatus })}
                     options={[
