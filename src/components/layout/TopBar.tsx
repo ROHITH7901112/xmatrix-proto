@@ -7,12 +7,12 @@ import {
   Sun,
   Share2,
   Download,
-  Eye,
   Calendar,
   RotateCw,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
+import { EditModeToggle } from '@/components/shared/EditModeToggle';
 
 interface TopBarProps {
   title?: string;
@@ -22,13 +22,15 @@ interface TopBarProps {
 
 export function TopBar({ title, showRotation = false, showZoom = false }: TopBarProps) {
   const {
-    data,
     viewState,
     toggleDarkMode,
     setTimeHorizon,
     rotateClockwise,
     setZoom,
+    getActiveData,
   } = useXMatrixStore();
+
+  const activeData = getActiveData();
 
   return (
     <header className="flex items-center justify-between h-14 px-6 bg-slate-900/80 backdrop-blur-sm border-b border-slate-800">
@@ -36,10 +38,10 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
       <div className="flex items-center gap-4">
         <div className="flex flex-col">
           <h1 className="text-base font-semibold text-white">
-            {title || data.name}
+            {title || activeData.name}
           </h1>
           <span className="text-xs text-slate-500">
-            {data.periodStart}–{data.periodEnd} Strategy Period
+            {activeData.periodStart}–{activeData.periodEnd} Strategy Period
           </span>
         </div>
       </div>
@@ -106,12 +108,13 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
         )}
       </div>
 
-      {/* Right Section - Actions */}
+      {/* Right Section - View/Edit Toggle & Actions */}
       <div className="flex items-center gap-2">
-        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all text-xs font-medium">
-          <Eye className="w-3.5 h-3.5" />
-          View
-        </button>
+        {/* View/Edit Mode Toggle */}
+        <EditModeToggle />
+        
+        <div className="w-px h-6 bg-slate-700 mx-1" />
+        
         <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all text-xs font-medium">
           <Share2 className="w-3.5 h-3.5" />
           Share

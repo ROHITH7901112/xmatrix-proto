@@ -12,6 +12,17 @@ export type Trend = 'up' | 'down' | 'stable';
 
 export type ResponsibilityType = 'accountable' | 'responsible' | 'consulted' | 'informed';
 
+// Matrix editing mode - View Mode is default (read-only), Edit Mode enables changes
+export type MatrixMode = 'view' | 'edit';
+
+// Edit mode state for draft management
+export interface EditModeState {
+  mode: MatrixMode;
+  draftData: XMatrixData | null;
+  hasUnsavedChanges: boolean;
+  lastSavedAt: Date | null;
+}
+
 export interface Owner {
   id: string;
   name: string;

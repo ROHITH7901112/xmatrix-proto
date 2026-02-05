@@ -3,7 +3,7 @@
 import { useXMatrixStore } from '@/lib/store';
 import { motion } from 'framer-motion';
 import { getHealthColor, getRelationshipColor, getRelationshipDotSize } from '@/lib/utils';
-import { KPI, Owner, Relationship, EntityType } from '@/lib/types';
+import { KPI, Owner, Relationship } from '@/lib/types';
 import { useCallback, useMemo, useEffect } from 'react';
 import { useXMatrixCRUD } from '@/hooks/useXMatrixCRUD';
 import { Modal, LTOForm, AOForm, InitiativeForm, KPIForm, OwnerForm } from '@/components/shared/EntityModals';
@@ -35,19 +35,19 @@ const GRID = {
 
 export function XMatrix() {
   const {
-    data,
     viewState,
     setHoveredElement,
     setSelectedElement,
     getHighlightedElements,
     toggleRelationship,
-    addLongTermObjective,
-    addAnnualObjective,
-    addInitiative,
-    addKPI,
-    addOwner,
     fetchData,
+    editModeState,
+    getActiveData,
   } = useXMatrixStore();
+
+  // Get active data (view or draft based on mode)
+  const data = getActiveData();
+  const isEditMode = editModeState.mode === 'edit';
 
   // Fetch data on mount
   useEffect(() => {
@@ -212,6 +212,7 @@ export function XMatrix() {
           findRelationship={findRelationship}
           onCellClick={toggleRelationship}
           isHighlighted={isHighlighted}
+          isEditMode={isEditMode}
         />
 
         {/* Top-Right: Initiatives (rows) × KPIs (columns) */}
@@ -227,6 +228,7 @@ export function XMatrix() {
           findRelationship={findRelationship}
           onCellClick={toggleRelationship}
           isHighlighted={isHighlighted}
+          isEditMode={isEditMode}
         />
 
         {/* Far Right: Initiatives (rows) × Owners (columns) - WHO section */}
@@ -242,6 +244,7 @@ export function XMatrix() {
           findRelationship={findRelationship}
           onCellClick={toggleRelationship}
           isHighlighted={isHighlighted}
+          isEditMode={isEditMode}
         />
 
         {/* Bottom-Left: LTO (rows) × AO (columns) */}
@@ -257,6 +260,7 @@ export function XMatrix() {
           findRelationship={findRelationship}
           onCellClick={toggleRelationship}
           isHighlighted={isHighlighted}
+          isEditMode={isEditMode}
         />
 
         {/* Bottom-Right: LTO (rows) × KPIs (columns) */}
@@ -272,6 +276,7 @@ export function XMatrix() {
           findRelationship={findRelationship}
           onCellClick={toggleRelationship}
           isHighlighted={isHighlighted}
+          isEditMode={isEditMode}
         />
 
         {/* ================================================================== */}
@@ -313,7 +318,8 @@ export function XMatrix() {
                 isHighlighted={isHighlighted(init.id)}
                 onHover={(hover) => setHoveredElement(hover ? { id: init.id, type: 'initiative' } : null)}
                 onClick={() => setSelectedElement({ id: init.id, type: 'initiative' })}
-                onDoubleClick={() => openEditModal('initiative', init)}
+                onDoubleClick={isEditMode ? () => openEditModal('initiative', init) : undefined}
+                isEditMode={isEditMode}
               />
             );
           })}
@@ -348,7 +354,8 @@ export function XMatrix() {
                 isHighlighted={isHighlighted(ao.id)}
                 onHover={(hover) => setHoveredElement(hover ? { id: ao.id, type: 'ao' } : null)}
                 onClick={() => setSelectedElement({ id: ao.id, type: 'ao' })}
-                onDoubleClick={() => openEditModal('ao', ao)}
+                onDoubleClick={isEditMode ? () => openEditModal('ao', ao) : undefined}
+                isEditMode={isEditMode}
               />
             );
           })}
@@ -380,7 +387,8 @@ export function XMatrix() {
                 isHighlighted={isHighlighted(kpi.id)}
                 onHover={(hover) => setHoveredElement(hover ? { id: kpi.id, type: 'kpi' } : null)}
                 onClick={() => setSelectedElement({ id: kpi.id, type: 'kpi' })}
-                onDoubleClick={() => openEditModal('kpi', kpi)}
+                onDoubleClick={isEditMode ? () => openEditModal('kpi', kpi) : undefined}
+                isEditMode={isEditMode}
               />
             );
           })}
@@ -413,7 +421,8 @@ export function XMatrix() {
                 isHighlighted={isHighlighted(lto.id)}
                 onHover={(hover) => setHoveredElement(hover ? { id: lto.id, type: 'lto' } : null)}
                 onClick={() => setSelectedElement({ id: lto.id, type: 'lto' })}
-                onDoubleClick={() => openEditModal('lto', lto)}
+                onDoubleClick={isEditMode ? () => openEditModal('lto', lto) : undefined}
+                isEditMode={isEditMode}
               />
             );
           })}
@@ -465,7 +474,8 @@ export function XMatrix() {
                 isHighlighted={isHighlighted(owner.id)}
                 onHover={(hover) => setHoveredElement(hover ? { id: owner.id, type: 'owner' } : null)}
                 onClick={() => setSelectedElement({ id: owner.id, type: 'owner' })}
-                onDoubleClick={() => openEditModal('owner', owner)}
+                onDoubleClick={isEditMode ? () => openEditModal('owner', owner) : undefined}
+                isEditMode={isEditMode}
               />
             );
           })}
@@ -498,51 +508,55 @@ export function XMatrix() {
         </g>
 
         {/* ================================================================== */}
-        {/* ADD BUTTONS */}
+        {/* ADD BUTTONS - Only visible in Edit Mode */}
         {/* ================================================================== */}
-        <AddButton
-          x={centerX}
-          y={centerY - centerOffset - gridDimensions.topBandHeight - 25}
-          label="+ Initiative"
-          onClick={() => openAddModal('initiative')}
-          rotation={rotation}
-          center={{ x: centerX, y: centerY }}
-        />
-        <AddButton
-          x={centerX - centerOffset - gridDimensions.leftBandWidth - 25}
-          y={centerY}
-          label="+ AO"
-          onClick={() => openAddModal('ao')}
-          rotation={rotation}
-          center={{ x: centerX, y: centerY }}
-          vertical
-        />
-        <AddButton
-          x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap / 2}
-          y={centerY}
-          label="+ KPI"
-          onClick={() => openAddModal('kpi')}
-          rotation={rotation}
-          center={{ x: centerX, y: centerY }}
-          vertical
-        />
-        <AddButton
-          x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + gridDimensions.ownerBandWidth + 25}
-          y={centerY}
-          label="+ Owner"
-          onClick={() => openAddModal('owner')}
-          rotation={rotation}
-          center={{ x: centerX, y: centerY }}
-          vertical
-        />
-        <AddButton
-          x={centerX}
-          y={centerY + centerOffset + gridDimensions.bottomBandHeight + 25}
-          label="+ LTO"
-          onClick={() => openAddModal('lto')}
-          rotation={rotation}
-          center={{ x: centerX, y: centerY }}
-        />
+        {isEditMode && (
+          <>
+            <AddButton
+              x={centerX}
+              y={centerY - centerOffset - gridDimensions.topBandHeight - 25}
+              label="+ Initiative"
+              onClick={() => openAddModal('initiative')}
+              rotation={rotation}
+              center={{ x: centerX, y: centerY }}
+            />
+            <AddButton
+              x={centerX - centerOffset - gridDimensions.leftBandWidth - 25}
+              y={centerY}
+              label="+ AO"
+              onClick={() => openAddModal('ao')}
+              rotation={rotation}
+              center={{ x: centerX, y: centerY }}
+              vertical
+            />
+            <AddButton
+              x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap / 2}
+              y={centerY}
+              label="+ KPI"
+              onClick={() => openAddModal('kpi')}
+              rotation={rotation}
+              center={{ x: centerX, y: centerY }}
+              vertical
+            />
+            <AddButton
+              x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + gridDimensions.ownerBandWidth + 25}
+              y={centerY}
+              label="+ Owner"
+              onClick={() => openAddModal('owner')}
+              rotation={rotation}
+              center={{ x: centerX, y: centerY }}
+              vertical
+            />
+            <AddButton
+              x={centerX}
+              y={centerY + centerOffset + gridDimensions.bottomBandHeight + 25}
+              label="+ LTO"
+              onClick={() => openAddModal('lto')}
+              rotation={rotation}
+              center={{ x: centerX, y: centerY }}
+            />
+          </>
+        )}
       </motion.svg>
 
       {/* Edit Modals */}
@@ -705,6 +719,7 @@ interface RelationshipGridProps {
   findRelationship: (a: string, b: string) => Relationship | undefined;
   onCellClick: (rowId: string, rowType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner', colId: string, colType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner') => void;
   isHighlighted: (id: string) => boolean;
+  isEditMode: boolean;
 }
 
 function RelationshipGrid({
@@ -719,6 +734,7 @@ function RelationshipGrid({
   findRelationship,
   onCellClick,
   isHighlighted,
+  isEditMode,
 }: RelationshipGridProps) {
   const rowCount = rows.length;
   const colCount = cols.length;
@@ -780,15 +796,15 @@ function RelationshipGrid({
 
           return (
             <g key={`cell-${row.id}-${col.id}`}>
-              {/* Clickable area - works for all grids including owner grids */}
+              {/* Clickable area - only interactive in Edit Mode */}
               <rect
                 x={cellX}
                 y={cellY}
                 width={cellWidth}
                 height={cellHeight}
                 fill="transparent"
-                style={{ cursor: 'pointer' }}
-                onClick={() => onCellClick(row.id, rowType, col.id, colType)}
+                style={{ cursor: isEditMode ? 'pointer' : 'default' }}
+                onClick={isEditMode ? () => onCellClick(row.id, rowType, col.id, colType) : undefined}
               />
 
               {/* Relationship dot */}
@@ -830,6 +846,7 @@ interface InitiativeCellProps {
   onHover: (hover: boolean) => void;
   onClick: () => void;
   onDoubleClick?: () => void;
+  isEditMode: boolean;
 }
 
 function InitiativeCell({
@@ -846,6 +863,7 @@ function InitiativeCell({
   onHover,
   onClick,
   onDoubleClick,
+  isEditMode,
 }: InitiativeCellProps) {
   const healthColor = getHealthColor(health);
   const displayTitle = title.length > 40 ? title.substring(0, 40) + '...' : title;
@@ -858,8 +876,8 @@ function InitiativeCell({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      style={{ cursor: 'pointer' }}
+      onDoubleClick={isEditMode ? onDoubleClick : undefined}
+      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
       {/* Row line spanning full width (subtle) */}
       <line
@@ -926,6 +944,7 @@ interface VerticalCellProps {
   onHover: (hover: boolean) => void;
   onClick: () => void;
   onDoubleClick?: () => void;
+  isEditMode: boolean;
 }
 
 function VerticalCell({
@@ -942,6 +961,7 @@ function VerticalCell({
   onHover,
   onClick,
   onDoubleClick,
+  isEditMode,
 }: VerticalCellProps) {
   const healthColor = getHealthColor(health);
   const displayTitle = title.length > 30 ? title.substring(0, 30) + '...' : title;
@@ -954,8 +974,8 @@ function VerticalCell({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      style={{ cursor: 'pointer' }}
+      onDoubleClick={isEditMode ? onDoubleClick : undefined}
+      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
       {/* Column line spanning full height (subtle) */}
       <line
@@ -1021,6 +1041,7 @@ interface HorizontalCellProps {
   center: { x: number; y: number };
   opacity: number;
   isHighlighted: boolean;
+  isEditMode: boolean;
   onHover: (hover: boolean) => void;
   onClick: () => void;
   onDoubleClick?: () => void;
@@ -1037,6 +1058,7 @@ function HorizontalCell({
   center,
   opacity,
   isHighlighted,
+  isEditMode,
   onHover,
   onClick,
   onDoubleClick,
@@ -1052,8 +1074,8 @@ function HorizontalCell({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      style={{ cursor: 'pointer' }}
+      onDoubleClick={isEditMode ? onDoubleClick : undefined}
+      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
       {/* Row line spanning full width (subtle) */}
       <line
@@ -1116,6 +1138,7 @@ interface KPICellProps {
   center: { x: number; y: number };
   opacity: number;
   isHighlighted: boolean;
+  isEditMode: boolean;
   onHover: (hover: boolean) => void;
   onClick: () => void;
   onDoubleClick?: () => void;
@@ -1131,6 +1154,7 @@ function KPICell({
   center,
   opacity,
   isHighlighted,
+  isEditMode,
   onHover,
   onClick,
   onDoubleClick,
@@ -1146,8 +1170,8 @@ function KPICell({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      style={{ cursor: 'pointer' }}
+      onDoubleClick={isEditMode ? onDoubleClick : undefined}
+      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
       {/* Column line spanning full height (subtle) */}
       <line
@@ -1210,6 +1234,7 @@ interface OwnerHeaderCellProps {
   center: { x: number; y: number };
   opacity: number;
   isHighlighted: boolean;
+  isEditMode: boolean;
   onHover: (hover: boolean) => void;
   onClick: () => void;
   onDoubleClick?: () => void;
@@ -1223,6 +1248,7 @@ function OwnerHeaderCell({
   center,
   opacity,
   isHighlighted,
+  isEditMode,
   onHover,
   onClick,
   onDoubleClick,
@@ -1235,8 +1261,8 @@ function OwnerHeaderCell({
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      style={{ cursor: 'pointer' }}
+      onDoubleClick={isEditMode ? onDoubleClick : undefined}
+      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
       {/* Counter-rotate to stay readable, then rotate -90 for vertical text */}
       {/* Position at the bottom of the owner section */}
