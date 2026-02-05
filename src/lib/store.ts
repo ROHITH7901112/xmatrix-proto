@@ -738,7 +738,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
         case 'ao': return 1;
         case 'initiative': return 2;
         case 'kpi': return 3;
-        case 'owner': return 3;
+        case 'owner': return 4;
         default: return 99;
       }
     };
@@ -755,7 +755,11 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
         const connRank = getRank(conn.type);
         let isValidStep = false;
 
-        if (direction === 'up') {
+        // Special case: KPI <-> Owner (they should always highlight each other)
+        if ((currentType === 'kpi' && conn.type === 'owner') || 
+            (currentType === 'owner' && conn.type === 'kpi')) {
+          isValidStep = true;
+        } else if (direction === 'up') {
           // Going to Root: Look for LOWER rank number (0 is root)
           isValidStep = connRank < currentRank;
         } else {
