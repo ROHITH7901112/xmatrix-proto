@@ -52,26 +52,31 @@ interface XMatrixStore {
 
   // CRUD Actions - Long-Term Objectives
   addLongTermObjective: () => Promise<void>;
+  createLongTermObjective: (lto: LongTermObjective) => void;
   updateLongTermObjective: (id: string, data: Partial<LongTermObjective>) => Promise<void>;
   deleteLongTermObjective: (id: string) => Promise<void>;
 
   // CRUD Actions - Annual Objectives
   addAnnualObjective: () => Promise<void>;
+  createAnnualObjective: (ao: AnnualObjective) => void;
   updateAnnualObjective: (id: string, data: Partial<AnnualObjective>) => Promise<void>;
   deleteAnnualObjective: (id: string) => Promise<void>;
 
   // CRUD Actions - Initiatives
   addInitiative: () => Promise<void>;
+  createInitiative: (initiative: Initiative) => void;
   updateInitiative: (id: string, data: Partial<Initiative>) => Promise<void>;
   deleteInitiative: (id: string) => Promise<void>;
 
   // CRUD Actions - KPIs
   addKPI: () => Promise<void>;
+  createKPI: (kpi: KPI) => void;
   updateKPI: (id: string, data: Partial<KPI>) => Promise<void>;
   deleteKPI: (id: string) => Promise<void>;
 
   // CRUD Actions - Owners
   addOwner: () => Promise<void>;
+  createOwner: (owner: Owner) => void;
   updateOwner: (id: string, data: Partial<Owner>) => Promise<void>;
   deleteOwner: (id: string) => Promise<void>;
 
@@ -340,6 +345,26 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     });
   },
 
+  createLongTermObjective: (lto: LongTermObjective) => {
+    const state = get();
+    
+    if (state.editModeState.mode !== 'edit' || !state.editModeState.draftData) {
+      return;
+    }
+
+    const draftData = state.editModeState.draftData;
+    set({
+      editModeState: {
+        ...state.editModeState,
+        draftData: {
+          ...draftData,
+          longTermObjectives: [...draftData.longTermObjectives, lto],
+        },
+        hasUnsavedChanges: true,
+      },
+    });
+  },
+
   updateLongTermObjective: async (id: string, updateData: Partial<LongTermObjective>) => {
     const state = get();
 
@@ -411,6 +436,26 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
         draftData: {
           ...draftData,
           annualObjectives: [...draftData.annualObjectives, newAO],
+        },
+        hasUnsavedChanges: true,
+      },
+    });
+  },
+
+  createAnnualObjective: (ao: AnnualObjective) => {
+    const state = get();
+    
+    if (state.editModeState.mode !== 'edit' || !state.editModeState.draftData) {
+      return;
+    }
+
+    const draftData = state.editModeState.draftData;
+    set({
+      editModeState: {
+        ...state.editModeState,
+        draftData: {
+          ...draftData,
+          annualObjectives: [...draftData.annualObjectives, ao],
         },
         hasUnsavedChanges: true,
       },
@@ -489,6 +534,26 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
         draftData: {
           ...draftData,
           initiatives: [...draftData.initiatives, newInit],
+        },
+        hasUnsavedChanges: true,
+      },
+    });
+  },
+
+  createInitiative: (initiative: Initiative) => {
+    const state = get();
+    
+    if (state.editModeState.mode !== 'edit' || !state.editModeState.draftData) {
+      return;
+    }
+
+    const draftData = state.editModeState.draftData;
+    set({
+      editModeState: {
+        ...state.editModeState,
+        draftData: {
+          ...draftData,
+          initiatives: [...draftData.initiatives, initiative],
         },
         hasUnsavedChanges: true,
       },
@@ -575,6 +640,26 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     });
   },
 
+  createKPI: (kpi: KPI) => {
+    const state = get();
+    
+    if (state.editModeState.mode !== 'edit' || !state.editModeState.draftData) {
+      return;
+    }
+
+    const draftData = state.editModeState.draftData;
+    set({
+      editModeState: {
+        ...state.editModeState,
+        draftData: {
+          ...draftData,
+          kpis: [...draftData.kpis, kpi],
+        },
+        hasUnsavedChanges: true,
+      },
+    });
+  },
+
   updateKPI: async (id: string, updateData: Partial<KPI>) => {
     const state = get();
 
@@ -645,6 +730,26 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
         draftData: {
           ...draftData,
           owners: [...draftData.owners, newOwner],
+        },
+        hasUnsavedChanges: true,
+      },
+    });
+  },
+
+  createOwner: (owner: Owner) => {
+    const state = get();
+    
+    if (state.editModeState.mode !== 'edit' || !state.editModeState.draftData) {
+      return;
+    }
+
+    const draftData = state.editModeState.draftData;
+    set({
+      editModeState: {
+        ...state.editModeState,
+        draftData: {
+          ...draftData,
+          owners: [...draftData.owners, owner],
         },
         hasUnsavedChanges: true,
       },
