@@ -4,7 +4,29 @@ import { useXMatrixStore } from '@/lib/store';
 import { LongTermObjective, AnnualObjective, Initiative, KPI, Owner, EntityType } from '@/lib/types';
 
 export function useXMatrixCRUD() {
-    const { data, fetchData } = useXMatrixStore();
+    const store = useXMatrixStore();
+    const { 
+        editModeState, 
+        getActiveData, 
+        createLongTermObjective,
+        updateLongTermObjective, 
+        deleteLongTermObjective, 
+        createAnnualObjective,
+        updateAnnualObjective, 
+        deleteAnnualObjective, 
+        createInitiative,
+        updateInitiative, 
+        deleteInitiative, 
+        createKPI,
+        updateKPI, 
+        deleteKPI, 
+        createOwner,
+        updateOwner, 
+        deleteOwner 
+    } = store;
+    const data = getActiveData();
+    const isEditMode = editModeState.mode === 'edit';
+
     const [modalType, setModalType] = useState<EntityType | null>(null);
     const [editingItem, setEditingItem] = useState<LongTermObjective | AnnualObjective | Initiative | KPI | Owner | null>(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -30,13 +52,20 @@ export function useXMatrixCRUD() {
         if (!data) return;
         setIsSaving(true);
         try {
-            await fetch('/api/objectives/long-term', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ xmatrixId: data.id, ...lto }),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                // In edit mode: add to draft state only
+                createLongTermObjective(lto);
+                closeModal();
+            } else {
+                // In view mode: save to server directly
+                await fetch('/api/objectives/long-term', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xmatrixId: data.id, ...lto }),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -47,13 +76,20 @@ export function useXMatrixCRUD() {
     const handleUpdateLTO = async (lto: LongTermObjective) => {
         setIsSaving(true);
         try {
-            await fetch(`/api/objectives/long-term/${lto.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(lto),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                // In edit mode: update draft state only
+                await updateLongTermObjective(lto.id, lto);
+                closeModal();
+            } else {
+                // In view mode: save to server directly
+                await fetch(`/api/objectives/long-term/${lto.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(lto),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -64,9 +100,16 @@ export function useXMatrixCRUD() {
     const handleDeleteLTO = async (id: string) => {
         if (!confirm('Are you sure you want to delete this objective?')) return;
         try {
-            await fetch(`/api/objectives/long-term/${id}`, { method: 'DELETE' });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                // In edit mode: delete from draft state only
+                await deleteLongTermObjective(id);
+                closeModal();
+            } else {
+                // In view mode: delete from server directly
+                await fetch(`/api/objectives/long-term/${id}`, { method: 'DELETE' });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         }
@@ -77,13 +120,20 @@ export function useXMatrixCRUD() {
         if (!data) return;
         setIsSaving(true);
         try {
-            await fetch('/api/objectives/annual', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ xmatrixId: data.id, ...ao }),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                // In edit mode: add to draft state only
+                createAnnualObjective(ao);
+                closeModal();
+            } else {
+                // In view mode: save to server directly
+                await fetch('/api/objectives/annual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xmatrixId: data.id, ...ao }),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -94,13 +144,18 @@ export function useXMatrixCRUD() {
     const handleUpdateAO = async (ao: AnnualObjective) => {
         setIsSaving(true);
         try {
-            await fetch(`/api/objectives/annual/${ao.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(ao),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await updateAnnualObjective(ao.id, ao);
+                closeModal();
+            } else {
+                await fetch(`/api/objectives/annual/${ao.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ao),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -111,9 +166,14 @@ export function useXMatrixCRUD() {
     const handleDeleteAO = async (id: string) => {
         if (!confirm('Are you sure you want to delete this objective?')) return;
         try {
-            await fetch(`/api/objectives/annual/${id}`, { method: 'DELETE' });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await deleteAnnualObjective(id);
+                closeModal();
+            } else {
+                await fetch(`/api/objectives/annual/${id}`, { method: 'DELETE' });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         }
@@ -124,13 +184,20 @@ export function useXMatrixCRUD() {
         if (!data) return;
         setIsSaving(true);
         try {
-            await fetch('/api/initiatives', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ xmatrixId: data.id, ...initiative }),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                // In edit mode: add to draft state only
+                createInitiative(initiative);
+                closeModal();
+            } else {
+                // In view mode: save to server directly
+                await fetch('/api/initiatives', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xmatrixId: data.id, ...initiative }),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -141,13 +208,18 @@ export function useXMatrixCRUD() {
     const handleUpdateInitiative = async (initiative: Initiative) => {
         setIsSaving(true);
         try {
-            await fetch(`/api/initiatives/${initiative.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(initiative),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await updateInitiative(initiative.id, initiative);
+                closeModal();
+            } else {
+                await fetch(`/api/initiatives/${initiative.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(initiative),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -158,9 +230,14 @@ export function useXMatrixCRUD() {
     const handleDeleteInitiative = async (id: string) => {
         if (!confirm('Are you sure you want to delete this initiative?')) return;
         try {
-            await fetch(`/api/initiatives/${id}`, { method: 'DELETE' });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await deleteInitiative(id);
+                closeModal();
+            } else {
+                await fetch(`/api/initiatives/${id}`, { method: 'DELETE' });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         }
@@ -171,13 +248,20 @@ export function useXMatrixCRUD() {
         if (!data) return;
         setIsSaving(true);
         try {
-            await fetch('/api/kpis', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ xmatrixId: data.id, ...kpi, monthlyData: [] }),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                // In edit mode: add to draft state only
+                createKPI(kpi);
+                closeModal();
+            } else {
+                // In view mode: save to server directly
+                await fetch('/api/kpis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xmatrixId: data.id, ...kpi, monthlyData: [] }),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -188,13 +272,18 @@ export function useXMatrixCRUD() {
     const handleUpdateKPI = async (kpi: KPI) => {
         setIsSaving(true);
         try {
-            await fetch(`/api/kpis/${kpi.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(kpi),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await updateKPI(kpi.id, kpi);
+                closeModal();
+            } else {
+                await fetch(`/api/kpis/${kpi.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(kpi),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -205,9 +294,14 @@ export function useXMatrixCRUD() {
     const handleDeleteKPI = async (id: string) => {
         if (!confirm('Are you sure you want to delete this KPI?')) return;
         try {
-            await fetch(`/api/kpis/${id}`, { method: 'DELETE' });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await deleteKPI(id);
+                closeModal();
+            } else {
+                await fetch(`/api/kpis/${id}`, { method: 'DELETE' });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         }
@@ -218,13 +312,20 @@ export function useXMatrixCRUD() {
         if (!data) return;
         setIsSaving(true);
         try {
-            await fetch('/api/owners', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ xmatrixId: data.id, ...owner }),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                // In edit mode: add to draft state only
+                createOwner(owner);
+                closeModal();
+            } else {
+                // In view mode: save to server directly
+                await fetch('/api/owners', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xmatrixId: data.id, ...owner }),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -235,13 +336,18 @@ export function useXMatrixCRUD() {
     const handleUpdateOwner = async (owner: Owner) => {
         setIsSaving(true);
         try {
-            await fetch(`/api/owners/${owner.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(owner),
-            });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await updateOwner(owner.id, owner);
+                closeModal();
+            } else {
+                await fetch(`/api/owners/${owner.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(owner),
+                });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -252,9 +358,14 @@ export function useXMatrixCRUD() {
     const handleDeleteOwner = async (id: string) => {
         if (!confirm('Are you sure you want to delete this owner?')) return;
         try {
-            await fetch(`/api/owners/${id}`, { method: 'DELETE' });
-            await fetchData();
-            closeModal();
+            if (isEditMode) {
+                await deleteOwner(id);
+                closeModal();
+            } else {
+                await fetch(`/api/owners/${id}`, { method: 'DELETE' });
+                await store.fetchData();
+                closeModal();
+            }
         } catch (err) {
             console.error(err);
         }
