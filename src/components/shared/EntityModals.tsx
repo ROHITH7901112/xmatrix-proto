@@ -15,7 +15,7 @@ function getNextCode(existingCodes: string[], prefix: string): string {
             return match ? parseInt(match[1], 10) : 0;
         })
         .filter(num => !isNaN(num));
-    
+
     const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
     return `${prefix}-${maxNumber + 1}`;
 }

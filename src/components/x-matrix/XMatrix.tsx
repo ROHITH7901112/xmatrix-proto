@@ -2,7 +2,7 @@
 
 import { useXMatrixStore } from '@/lib/store';
 import { motion } from 'framer-motion';
-import { getHealthColor, getRelationshipColor, getRelationshipDotSize } from '@/lib/utils';
+import { getHealthColor, getRelationshipColor, getRelationshipDotSize, cn } from '@/lib/utils';
 import { KPI, Owner, Relationship } from '@/lib/types';
 import { useCallback, useMemo, useEffect } from 'react';
 import { useXMatrixCRUD } from '@/hooks/useXMatrixCRUD';
@@ -263,21 +263,7 @@ export function XMatrix() {
           isEditMode={isEditMode}
         />
 
-        {/* Bottom-Right: LTO (rows) × KPIs (columns) */}
-        <RelationshipGrid
-          rows={data.longTermObjectives}
-          cols={data.kpis}
-          rowType="lto"
-          colType="kpi"
-          startX={centerX + centerOffset}
-          startY={centerY + centerOffset}
-          gridWidth={gridDimensions.rightBandWidth}
-          gridHeight={gridDimensions.bottomBandHeight}
-          findRelationship={findRelationship}
-          onCellClick={toggleRelationship}
-          isHighlighted={isHighlighted}
-          isEditMode={isEditMode}
-        />
+        {/* Bottom-Right: LTO (rows) × KPIs (columns) - REMOVED */}
 
         {/* ================================================================== */}
         {/* CENTER SQUARE - Fixed anchor with four sections */}
@@ -870,9 +856,7 @@ function InitiativeCell({
   isEditMode,
 }: InitiativeCellProps) {
   const healthColor = getHealthColor(health);
-  const displayTitle = title.length > 40 ? title.substring(0, 40) + '...' : title;
-  // Label box is centered over the diamond area (not full width)
-  const labelWidth = GRID.diamondSize; // Match diamond size
+  const labelWidth = GRID.diamondSize;
 
   return (
     <motion.g
@@ -883,7 +867,6 @@ function InitiativeCell({
       onDoubleClick={isEditMode ? onDoubleClick : undefined}
       style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
-      {/* Row line spanning full width (subtle) */}
       <line
         x1={x - width / 2}
         y1={y}
@@ -894,7 +877,6 @@ function InitiativeCell({
         strokeDasharray="2,2"
         opacity={0.3}
       />
-      {/* Label box in center (over diamond) */}
       <rect
         x={center.x - labelWidth / 2}
         y={y - height / 2 + 2}
@@ -905,7 +887,6 @@ function InitiativeCell({
         strokeWidth={isHighlighted ? 2 : 1}
         rx="2"
       />
-      {/* Health indicator bar on left of label */}
       <rect
         x={center.x - labelWidth / 2}
         y={y - height / 2 + 2}
@@ -914,18 +895,19 @@ function InitiativeCell({
         fill={healthColor}
         rx="1"
       />
-      {/* Text - counter-rotated, reads left to right */}
       <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <text
-          x={center.x}
-          y={y + 4}
-          textAnchor="middle"
-          fill="white"
-          fontSize="10"
-          fontWeight="500"
+        <foreignObject
+          x={center.x - labelWidth / 2 + 5}
+          y={y - height / 2 + 2}
+          width={labelWidth - 10}
+          height={height - 4}
         >
-          {displayTitle}
-        </text>
+          <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium px-2">
+            <span className="truncate w-full text-center">
+              {title}
+            </span>
+          </div>
+        </foreignObject>
       </g>
     </motion.g>
   );
@@ -968,9 +950,7 @@ function VerticalCell({
   isEditMode,
 }: VerticalCellProps) {
   const healthColor = getHealthColor(health);
-  const displayTitle = title.length > 30 ? title.substring(0, 30) + '...' : title;
-  // Label box is centered over the diamond area (not full height)
-  const labelHeight = GRID.diamondSize; // Match diamond size
+  const labelHeight = GRID.diamondSize;
 
   return (
     <motion.g
@@ -981,7 +961,6 @@ function VerticalCell({
       onDoubleClick={isEditMode ? onDoubleClick : undefined}
       style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
-      {/* Column line spanning full height (subtle) */}
       <line
         x1={x}
         y1={y - height / 2}
@@ -992,7 +971,6 @@ function VerticalCell({
         strokeDasharray="2,2"
         opacity={0.3}
       />
-      {/* Label box in center (over diamond) */}
       <rect
         x={x - width / 2 + 2}
         y={center.y - labelHeight / 2}
@@ -1003,7 +981,6 @@ function VerticalCell({
         strokeWidth={isHighlighted ? 2 : 1}
         rx="2"
       />
-      {/* Health indicator bar on top of label */}
       <rect
         x={x - width / 2 + 2}
         y={center.y - labelHeight / 2}
@@ -1012,19 +989,20 @@ function VerticalCell({
         fill={healthColor}
         rx="1"
       />
-      {/* Text - counter-rotated, then rotated -90 to read bottom to top */}
       <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
         <g transform={`rotate(-90, ${x}, ${center.y})`}>
-          <text
-            x={x}
-            y={center.y + 4}
-            textAnchor="middle"
-            fill="white"
-            fontSize="10"
-            fontWeight="500"
+          <foreignObject
+            x={x - (labelHeight - 10) / 2 + 5}
+            y={center.y - (width - 4) / 2}
+            width={labelHeight - 20}
+            height={width - 4}
           >
-            {displayTitle}
-          </text>
+            <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium px-2">
+              <span className="truncate w-full text-center">
+                {title}
+              </span>
+            </div>
+          </foreignObject>
         </g>
       </g>
     </motion.g>
@@ -1068,9 +1046,7 @@ function HorizontalCell({
   onDoubleClick,
 }: HorizontalCellProps) {
   const healthColor = getHealthColor(health);
-  const displayTitle = title.length > 45 ? title.substring(0, 45) + '...' : title;
-  // Label box is centered over the diamond area (not full width)
-  const labelWidth = GRID.diamondSize; // Match diamond size
+  const labelWidth = GRID.diamondSize;
 
   return (
     <motion.g
@@ -1081,7 +1057,6 @@ function HorizontalCell({
       onDoubleClick={isEditMode ? onDoubleClick : undefined}
       style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
-      {/* Row line spanning full width (subtle) */}
       <line
         x1={x - width / 2}
         y1={y}
@@ -1092,7 +1067,6 @@ function HorizontalCell({
         strokeDasharray="2,2"
         opacity={0.3}
       />
-      {/* Label box in center (over diamond) */}
       <rect
         x={center.x - labelWidth / 2}
         y={y - height / 2 + 2}
@@ -1103,7 +1077,6 @@ function HorizontalCell({
         strokeWidth={isHighlighted ? 2 : 1}
         rx="2"
       />
-      {/* Health indicator bar on left of label */}
       <rect
         x={center.x - labelWidth / 2}
         y={y - height / 2 + 2}
@@ -1112,18 +1085,19 @@ function HorizontalCell({
         fill={healthColor}
         rx="1"
       />
-      {/* Text - counter-rotated, reads left to right */}
       <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <text
-          x={center.x}
-          y={y + 4}
-          textAnchor="middle"
-          fill="white"
-          fontSize="10"
-          fontWeight="500"
+        <foreignObject
+          x={center.x - labelWidth / 2 + 5}
+          y={y - height / 2 + 2}
+          width={labelWidth - 10}
+          height={height - 4}
         >
-          {displayTitle}
-        </text>
+          <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium px-2">
+            <span className="truncate w-full text-center">
+              {title}
+            </span>
+          </div>
+        </foreignObject>
       </g>
     </motion.g>
   );
@@ -1164,9 +1138,7 @@ function KPICell({
   onDoubleClick,
 }: KPICellProps) {
   const healthColor = getHealthColor(kpi.health);
-  const displayTitle = kpi.title.length > 25 ? kpi.title.substring(0, 25) + '...' : kpi.title;
-  // Label box is centered over the diamond area (not full height)
-  const labelHeight = GRID.diamondSize; // Match diamond size
+  const labelHeight = GRID.diamondSize;
 
   return (
     <motion.g
@@ -1177,7 +1149,6 @@ function KPICell({
       onDoubleClick={isEditMode ? onDoubleClick : undefined}
       style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
-      {/* Column line spanning full height (subtle) */}
       <line
         x1={x}
         y1={y - height / 2}
@@ -1188,7 +1159,6 @@ function KPICell({
         strokeDasharray="2,2"
         opacity={0.3}
       />
-      {/* Label box in center (over diamond) */}
       <rect
         x={x - width / 2 + 2}
         y={center.y - labelHeight / 2}
@@ -1199,7 +1169,6 @@ function KPICell({
         strokeWidth={isHighlighted ? 2 : 1}
         rx="2"
       />
-      {/* Health indicator bar on top of label */}
       <rect
         x={x - width / 2 + 2}
         y={center.y - labelHeight / 2}
@@ -1208,19 +1177,20 @@ function KPICell({
         fill={healthColor}
         rx="1"
       />
-      {/* Text - counter-rotated, then rotated -90 to read bottom to top */}
       <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
         <g transform={`rotate(-90, ${x}, ${center.y})`}>
-          <text
-            x={x}
-            y={center.y + 4}
-            textAnchor="middle"
-            fill="white"
-            fontSize="9"
-            fontWeight="500"
+          <foreignObject
+            x={x - (labelHeight - 10) / 2 + 5}
+            y={center.y - (width - 4) / 2}
+            width={labelHeight - 20}
+            height={width - 4}
           >
-            {displayTitle}
-          </text>
+            <div className="flex items-center justify-center w-full h-full text-white text-[9px] font-medium px-2">
+              <span className="truncate w-full text-center">
+                {kpi.title}
+              </span>
+            </div>
+          </foreignObject>
         </g>
       </g>
     </motion.g>
@@ -1257,7 +1227,7 @@ function OwnerHeaderCell({
   onClick,
   onDoubleClick,
 }: OwnerHeaderCellProps) {
-  const displayName = owner.name.length > 14 ? owner.name.substring(0, 14) + '...' : owner.name;
+  const labelHeight = 80;
 
   return (
     <motion.g
@@ -1268,20 +1238,25 @@ function OwnerHeaderCell({
       onDoubleClick={isEditMode ? onDoubleClick : undefined}
       style={{ cursor: isEditMode ? 'pointer' : 'default' }}
     >
-      {/* Counter-rotate to stay readable, then rotate -90 for vertical text */}
-      {/* Position at the bottom of the owner section */}
       <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
         <g transform={`rotate(-90, ${x}, ${y})`}>
-          <text
-            x={x}
-            y={y + 3}
-            textAnchor="middle"
-            fill={isHighlighted ? 'rgb(147, 197, 253)' : 'rgb(148, 163, 184)'}
-            fontSize="8"
-            fontWeight="500"
+          <foreignObject
+            x={x - labelHeight / 2}
+            y={y - 12}
+            width={labelHeight}
+            height={24}
           >
-            {displayName}
-          </text>
+            <div className="flex items-center justify-center w-full h-full text-[9px] font-medium px-1">
+              <span
+                className={cn(
+                  "truncate w-full text-center",
+                  isHighlighted ? "text-blue-300" : "text-slate-400"
+                )}
+              >
+                {owner.name}
+              </span>
+            </div>
+          </foreignObject>
         </g>
       </g>
     </motion.g>
