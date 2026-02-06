@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useXMatrixStore } from '@/lib/store';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, Pencil, Save, X, AlertTriangle, Loader2 } from 'lucide-react';
+import { Eye, Pencil, Save, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface UnsavedChangesDialogProps {
+interface AcknowledgementModalProps {
   isOpen: boolean;
   onSave: () => void;
   onDiscard: () => void;
@@ -14,84 +14,103 @@ interface UnsavedChangesDialogProps {
   isSaving: boolean;
 }
 
-function UnsavedChangesDialog({ isOpen, onSave, onDiscard, onCancel, isSaving }: UnsavedChangesDialogProps) {
-  if (!isOpen) return null;
+import { createPortal } from 'react-dom';
 
-  return (
+function AcknowledgementModal({ isOpen, onSave, onDiscard, onCancel, isSaving }: AcknowledgementModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-        onClick={onCancel}
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-md p-6 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#020617]/98 backdrop-blur-xl px-4"
+          onClick={onCancel}
         >
-          <div className="flex items-start gap-4 mb-6">
-            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/10">
-              <AlertTriangle className="w-6 h-6 text-amber-400" />
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg bg-[#111827] border border-slate-700/50 rounded-xl shadow-2xl overflow-hidden"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/50">
+              <h3 className="text-lg font-semibold text-white">Relationship Acknowledgement</h3>
+              <button
+                onClick={onCancel}
+                className="p-1 rounded-lg text-slate-500 hover:text-white transition-colors"
+                disabled={isSaving}
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white mb-1">Unsaved Changes</h3>
-              <p className="text-sm text-slate-400">
-                You have unsaved changes to the strategy matrix. What would you like to do?
+
+            {/* Content */}
+            <div className="px-6 py-8">
+              <p className="text-slate-300 text-[16px] font-medium leading-relaxed">
+                Do you want to save or discard this relationship change?
               </p>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={onSave}
-              disabled={isSaving}
-              className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
-            >
-              {isSaving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4" />
-              )}
-              Save Changes
-            </button>
-            <button
-              onClick={onDiscard}
-              disabled={isSaving}
-              className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg transition-colors disabled:opacity-50"
-            >
-              <X className="w-4 h-4" />
-              Discard Changes
-            </button>
-            <button
-              onClick={onCancel}
-              disabled={isSaving}
-              className="w-full px-4 py-2 text-slate-400 hover:text-white text-sm transition-colors disabled:opacity-50"
-            >
-              Continue Editing
-            </button>
-          </div>
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-6 pt-2">
+              <button
+                onClick={onDiscard}
+                disabled={isSaving}
+                className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
+              >
+                Discard
+              </button>
+              <button
+                onClick={onSave}
+                disabled={isSaving}
+                className="flex items-center gap-2 px-6 py-2.5 bg-[#2563eb] hover:bg-[#1e40af] text-white text-sm font-semibold rounded-lg shadow-lg shadow-blue-500/20 transition-all border border-blue-500/50"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                Save
+              </button>
+            </div>
+          </motion.div>
         </motion.div>
-      </motion.div>
-    </AnimatePresence>
+      )}
+    </AnimatePresence>,
+    document.body
   );
 }
 
 export function EditModeToggle() {
   const { editModeState, enterEditMode, exitEditMode } = useXMatrixStore();
-  const [showDialog, setShowDialog] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const isEditMode = editModeState.mode === 'edit';
   const hasUnsavedChanges = editModeState.hasUnsavedChanges;
 
+  // Sync modal state with changes
+  useEffect(() => {
+    if (!hasUnsavedChanges) {
+      setShowModal(false);
+    }
+  }, [hasUnsavedChanges]);
+
   const handleToggleMode = () => {
     if (isEditMode) {
       if (hasUnsavedChanges) {
-        setShowDialog(true);
+        setShowModal(true);
       } else {
         exitEditMode(false);
       }
@@ -104,7 +123,7 @@ export function EditModeToggle() {
     setIsSaving(true);
     try {
       await exitEditMode(true);
-      setShowDialog(false);
+      setShowModal(false);
     } catch (error) {
       console.error('Failed to save:', error);
     } finally {
@@ -114,23 +133,12 @@ export function EditModeToggle() {
 
   const handleDiscard = () => {
     exitEditMode(false);
-    setShowDialog(false);
-  };
-
-  const handleSaveAndExit = async () => {
-    setIsSaving(true);
-    try {
-      await exitEditMode(true);
-    } catch (error) {
-      console.error('Failed to save:', error);
-    } finally {
-      setIsSaving(false);
-    }
+    setShowModal(false);
   };
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-4">
         {/* Mode Toggle */}
         <div className="flex items-center bg-slate-800 rounded-lg p-0.5">
           <button
@@ -159,65 +167,44 @@ export function EditModeToggle() {
           </button>
         </div>
 
-        {/* Save Button - Only visible in edit mode */}
+        {/* Action Buttons - Visible only when there are unsaved changes */}
         <AnimatePresence>
-          {isEditMode && (
+          {isEditMode && hasUnsavedChanges && (
             <motion.div
-              initial={{ opacity: 0, width: 0 }}
-              animate={{ opacity: 1, width: 'auto' }}
-              exit={{ opacity: 0, width: 0 }}
-              className="flex items-center gap-2 overflow-hidden"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              className="flex items-center gap-2"
             >
-              {hasUnsavedChanges && (
-                <span className="text-xs text-amber-400 whitespace-nowrap">
-                  Unsaved changes
-                </span>
-              )}
               <button
-                onClick={handleSaveAndExit}
-                disabled={isSaving || !hasUnsavedChanges}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap',
-                  hasUnsavedChanges
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                    : 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                )}
+                onClick={handleDiscard}
+                disabled={isSaving}
+                className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors"
+              >
+                Discard
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-md shadow-sm transition-all"
               >
                 {isSaving ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-3 h-3 animate-spin" />
                 ) : (
-                  <Save className="w-3.5 h-3.5" />
+                  <Save className="w-3 h-3" />
                 )}
-                Save Changes
+                Save
               </button>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Edit Mode Indicator Banner */}
-      <AnimatePresence>
-        {isEditMode && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="fixed top-16 left-1/2 -translate-x-1/2 z-40"
-          >
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-600/90 backdrop-blur-sm rounded-full text-xs text-white shadow-lg">
-              <Pencil className="w-3 h-3" />
-              <span className="font-medium">Editing Strategy</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Unsaved Changes Dialog */}
-      <UnsavedChangesDialog
-        isOpen={showDialog}
+      <AcknowledgementModal
+        isOpen={showModal}
         onSave={handleSave}
         onDiscard={handleDiscard}
-        onCancel={() => setShowDialog(false)}
+        onCancel={() => setShowModal(false)}
         isSaving={isSaving}
       />
     </>
