@@ -46,75 +46,15 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
         </div>
       </div>
 
-      {/* Center Section - Controls */}
+      {/* Center Section - Controls - REMOVED */}
       <div className="flex items-center gap-2">
-        {/* Time Horizon Selector */}
-        <div className="flex items-center bg-slate-800/50 rounded-lg p-0.5">
-          <button
-            onClick={() => setTimeHorizon('current')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-              viewState.timeHorizon === 'current'
-                ? 'bg-slate-700 text-white'
-                : 'text-slate-400 hover:text-white'
-            )}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            Current
-          </button>
-          <button
-            onClick={() => setTimeHorizon('future')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-              viewState.timeHorizon === 'future'
-                ? 'bg-slate-700 text-white'
-                : 'text-slate-400 hover:text-white'
-            )}
-          >
-            Future
-          </button>
-        </div>
-
-        {/* Rotation Control */}
-        {showRotation && (
-          <button
-            onClick={rotateClockwise}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/50 text-slate-400 hover:text-white hover:bg-slate-700 transition-all text-xs font-medium"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-            Rotate
-          </button>
-        )}
-
-        {/* Zoom Controls */}
-        {showZoom && (
-          <div className="flex items-center bg-slate-800/50 rounded-lg">
-            <button
-              onClick={() => setZoom(Math.max(0.5, viewState.zoom - 0.1))}
-              className="p-1.5 text-slate-400 hover:text-white transition-colors"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <span className="px-2 text-xs text-slate-400 min-w-[50px] text-center">
-              {Math.round(viewState.zoom * 100)}%
-            </span>
-            <button
-              onClick={() => setZoom(Math.min(2, viewState.zoom + 0.1))}
-              className="p-1.5 text-slate-400 hover:text-white transition-colors"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-          </div>
-        )}
       </div>
-
-      {/* Right Section - View/Edit Toggle & Actions */}
       <div className="flex items-center gap-2">
         {/* View/Edit Mode Toggle */}
         <EditModeToggle />
-        
+
         <div className="w-px h-6 bg-slate-700 mx-1" />
-        
+
         <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all text-xs font-medium">
           <Share2 className="w-3.5 h-3.5" />
           Share
