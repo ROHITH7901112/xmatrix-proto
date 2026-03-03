@@ -35,13 +35,13 @@ export function getDatabase(): Database.Database {
 
 function initializeSchema(): void {
   const schemaPath = path.join(process.cwd(), 'src', 'lib', 'schema.sql');
-  const schema = fs.readFileSync(schemaPath, 'utf-8');
-  db!.exec(schema);
+  const schema = fs.readFileSync(schemaPath, 'utf-8');  // reads the SQL schema and then converts to string
+  db!.exec(schema);  //db! means we are sure db is not null here
 }
 
 // ============ XMatrix CRUD ============
 
-export function getAllXMatrices(): XMatrixData[] {
+export function getAllXMatrices(): XMatrixData[] {  //this function
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM xmatrix').all() as {
     id: string;
@@ -56,7 +56,7 @@ export function getAllXMatrices(): XMatrixData[] {
   return rows.map(row => getXMatrixById(row.id)!);
 }
 
-export function getXMatrixById(id: string): XMatrixData | null {
+export function getXMatrixById(id: string): XMatrixData | null { // if not found,return null
   const db = getDatabase();
   const row = db.prepare('SELECT * FROM xmatrix WHERE id = ?').get(id) as {
     id: string;
@@ -117,8 +117,8 @@ export function updateXMatrix(id: string, data: Partial<XMatrixData>): XMatrixDa
     WHERE id = ?
   `);
   
-  stmt.run(
-    data.name ?? current.name,
+  stmt.run(   // If data already has that field , use it else use the existing value in the db.
+    data.name ?? current.name,  //?? is nullish coalescing operator
     data.vision ?? current.vision,
     data.trueNorth ?? current.trueNorth,
     data.periodStart ?? current.periodStart,
@@ -127,7 +127,7 @@ export function updateXMatrix(id: string, data: Partial<XMatrixData>): XMatrixDa
     id
   );
   
-  return getXMatrixById(id);
+  return getXMatrixById(id); // after update, fetch the latest data and return it. This ensures we return the complete XMatrixData with all related entities. If the update fails (e.g., due to a non-existent ID), we return null.
 }
 
 export function deleteXMatrix(id: string): boolean {
@@ -148,15 +148,15 @@ export function getOwnersByXMatrix(xmatrixId: string): Owner[] {
     avatar: string;
     initials: string;
     responsibility_type: string;
-  }[];
+  }[]; // we are telling typescript that the result of the query will be an array of objects with these specific fields. This allows us to have type safety when accessing the properties of each row in the subsequent map function.
   
-  return rows.map(row => ({
+  return rows.map(row => ({ 
     id: row.id,
     name: row.name,
     role: row.role,
     avatar: row.avatar,
     initials: row.initials,
-    responsibilityType: row.responsibility_type as Owner['responsibilityType'],
+    responsibilityType: row.responsibility_type as Owner['responsibilityType'], 
   }));
 }
 
@@ -169,7 +169,7 @@ export function getOwnerById(id: string): Owner | null {
     avatar: string;
     initials: string;
     responsibility_type: string;
-  } | undefined;
+  } | undefined; 
   
   if (!row) return null;
   
@@ -190,7 +190,7 @@ export function createOwner(xmatrixId: string, data: Owner): Owner {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   
-  stmt.run(data.id, xmatrixId, data.name, data.role, data.avatar, data.initials, data.responsibilityType);
+  stmt.run(data.id, xmatrixId, data.name, data.role, data.avatar, data.initials, data.responsibilityType); 
   return getOwnerById(data.id)!;
 }
 
@@ -690,6 +690,113 @@ export function deleteRelationship(xmatrixId: string, sourceId: string, targetId
   
   const result = stmt.run(xmatrixId, sourceId, targetId, targetId, sourceId);
   return result.changes > 0;
+}
+
+// ============ Bulk Sync (for edit mode save) ============
+
+export function syncRelationships(xmatrixId: string, relationships: Relationship[]): void {
+  const db = getDatabase();
+  const deleteAll = db.prepare('DELETE FROM relationships WHERE xmatrix_id = ?');
+  const insert = db.prepare(`
+    INSERT INTO relationships (xmatrix_id, source_id, source_type, target_id, target_type, strength)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  const syncTransaction = db.transaction(() => {
+    deleteAll.run(xmatrixId);
+    for (const rel of relationships) {
+      insert.run(xmatrixId, rel.sourceId, rel.sourceType, rel.targetId, rel.targetType, rel.strength);
+    }
+  });
+
+  syncTransaction();
+}
+
+export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original: XMatrixData): void {
+  const db = getDatabase();
+
+  // Generic diff helper
+  function diff<T extends { id: string }>(orig: T[], draftArr: T[]) {
+    const origMap = new Map(orig.map(i => [i.id, i]));
+    const draftMap = new Map(draftArr.map(i => [i.id, i]));
+    const added: T[] = [];
+    const updated: T[] = [];
+    const deleted: T[] = [];
+    for (const [id, item] of draftMap) {
+      if (!origMap.has(id)) added.push(item);
+      else if (JSON.stringify(origMap.get(id)) !== JSON.stringify(item)) updated.push(item);
+    }
+    for (const [id, item] of origMap) {
+      if (!draftMap.has(id)) deleted.push(item);
+    }
+    return { added, updated, deleted };
+  }
+
+  const syncTransaction = db.transaction(() => {
+    // --- Long-Term Objectives ---
+    const ltoDiff = diff(original.longTermObjectives, draft.longTermObjectives);
+    const ltoInsert = db.prepare('INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const ltoUpdate = db.prepare('UPDATE long_term_objectives SET code=?, title=?, description=?, timeframe=?, health=? WHERE id=?');
+    const ltoDelete = db.prepare('DELETE FROM long_term_objectives WHERE id=?');
+    for (const e of ltoDiff.added) ltoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.timeframe, e.health);
+    for (const e of ltoDiff.updated) ltoUpdate.run(e.code, e.title, e.description, e.timeframe, e.health, e.id);
+    for (const e of ltoDiff.deleted) ltoDelete.run(e.id);
+
+    // --- Annual Objectives ---
+    const aoDiff = diff(original.annualObjectives, draft.annualObjectives);
+    const aoInsert = db.prepare('INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const aoUpdate = db.prepare('UPDATE annual_objectives SET code=?, title=?, description=?, year=?, health=?, progress=? WHERE id=?');
+    const aoDelete = db.prepare('DELETE FROM annual_objectives WHERE id=?');
+    for (const e of aoDiff.added) aoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.year, e.health, e.progress);
+    for (const e of aoDiff.updated) aoUpdate.run(e.code, e.title, e.description, e.year, e.health, e.progress, e.id);
+    for (const e of aoDiff.deleted) aoDelete.run(e.id);
+
+    // --- Initiatives ---
+    const initDiff = diff(original.initiatives, draft.initiatives);
+    const initInsert = db.prepare('INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const initUpdate = db.prepare('UPDATE initiatives SET code=?, title=?, description=?, priority=?, health=?, start_date=?, end_date=? WHERE id=?');
+    const initDelete = db.prepare('DELETE FROM initiatives WHERE id=?');
+    for (const e of initDiff.added) initInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate);
+    for (const e of initDiff.updated) initUpdate.run(e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate, e.id);
+    for (const e of initDiff.deleted) initDelete.run(e.id);
+
+    // --- KPIs ---
+    const kpiDiff = diff(original.kpis, draft.kpis);
+    const kpiInsert = db.prepare('INSERT INTO kpis (id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const kpiUpdate = db.prepare('UPDATE kpis SET code=?, title=?, unit=?, current_value=?, target_value=?, health=?, trend=?, owner_ids=? WHERE id=?');
+    const kpiDelete = db.prepare('DELETE FROM kpis WHERE id=?');
+    const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance) VALUES (?, ?, ?, ?, ?)');
+    const monthlyDeleteByKpi = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id=?');
+    for (const e of kpiDiff.added) {
+      kpiInsert.run(e.id, xmatrixId, e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds));
+      if (e.monthlyData) for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
+    }
+    for (const e of kpiDiff.updated) {
+      kpiUpdate.run(e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds), e.id);
+      // Re-sync monthly data for updated KPIs
+      monthlyDeleteByKpi.run(e.id);
+      if (e.monthlyData) for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
+    }
+    for (const e of kpiDiff.deleted) kpiDelete.run(e.id);
+
+    // --- Owners ---
+    const ownerDiff = diff(original.owners, draft.owners);
+    const ownerInsert = db.prepare('INSERT INTO owners (id, xmatrix_id, name, role, avatar, initials, responsibility_type) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const ownerUpdate = db.prepare('UPDATE owners SET name=?, role=?, avatar=?, initials=?, responsibility_type=? WHERE id=?');
+    const ownerDelete = db.prepare('DELETE FROM owners WHERE id=?');
+    for (const e of ownerDiff.added) ownerInsert.run(e.id, xmatrixId, e.name, e.role, e.avatar, e.initials, e.responsibilityType);
+    for (const e of ownerDiff.updated) ownerUpdate.run(e.name, e.role, e.avatar, e.initials, e.responsibilityType, e.id);
+    for (const e of ownerDiff.deleted) ownerDelete.run(e.id);
+
+    // --- Relationships (full replace) ---
+    syncRelationships(xmatrixId, draft.relationships);
+
+    // --- XMatrix metadata ---
+    const metaUpdate = db.prepare('UPDATE xmatrix SET name=?, vision=?, true_north=?, period_start=?, period_end=?, themes=? WHERE id=?');
+    metaUpdate.run(draft.name, draft.vision, draft.trueNorth, draft.periodStart, draft.periodEnd, JSON.stringify(draft.themes), xmatrixId);
+  });
+
+  syncTransaction();
 }
 
 // ============ Utility Functions ============

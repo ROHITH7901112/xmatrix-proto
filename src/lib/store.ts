@@ -165,27 +165,34 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
   },
 
   exitEditMode: async (saveChanges: boolean) => {
-    const { editModeState } = get();
+    const { editModeState, data: originalData } = get();
     
     if (saveChanges && editModeState.draftData) {
-      // Persist all draft changes to the server
+      // Persist all draft changes to the server via atomic bulk sync
       try {
         const draft = editModeState.draftData;
         
-        // Sync relationships
-        await fetch('/api/relationships', {
-          method: 'POST',
+        // Single PATCH request: server diffs entities + replaces relationships in one transaction
+        const response = await fetch(`/api/xmatrix/${draft.id}`, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            xmatrixId: draft.id,
-            relationships: draft.relationships,
-            sync: true,
+            draft,
+            original: originalData,
           }),
         });
 
-        // Commit draft to main data
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to save changes');
+        }
+
+        // Server returns the freshly-read authoritative state from DB
+        const savedData = await response.json();
+
+        // Commit server state as the new source of truth
         set({
-          data: draft,
+          data: savedData,
           editModeState: {
             mode: 'view',
             draftData: null,
@@ -198,7 +205,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
         throw error;
       }
     } else {
-      // Discard draft changes
+      // Discard draft changes — original data untouched
       set({
         editModeState: {
           mode: 'view',
@@ -811,33 +818,37 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     const related = new Set<string>();
     related.add(elementId);
 
-    // Helper: Check if an element ID exists in the current data
-    const elementExists = (id: string, type: string): boolean => {
-      switch (type) {
-        case 'lto': return longTermObjectives.some(e => e.id === id);
-        case 'ao': return annualObjectives.some(e => e.id === id);
-        case 'initiative': return initiatives.some(e => e.id === id);
-        case 'kpi': return kpis.some(e => e.id === id);
-        case 'owner': return owners.some(e => e.id === id);
-        default: return false;
+    // ── Build adjacency map from ALL edge sources ──────────────────────
+    const adjacency = new Map<string, Set<string>>();
+
+    const addEdge = (a: string, b: string) => {
+      if (!adjacency.has(a)) adjacency.set(a, new Set());
+      if (!adjacency.has(b)) adjacency.set(b, new Set());
+      adjacency.get(a)!.add(b);
+      adjacency.get(b)!.add(a);
+    };
+
+    // 1. Index all explicit relationships (LTO↔AO, AO↔Init, Init↔KPI, etc.)
+    for (const rel of relationships) {
+      addEdge(rel.sourceId, rel.targetId);
+    }
+
+    // 2. Index KPI↔Owner links from ownerIds (these are NOT in relationships[])
+    for (const kpi of kpis) {
+      for (const ownerId of kpi.ownerIds) {
+        addEdge(kpi.id, ownerId);
       }
-    };
+    }
 
-    // Helpers
-    const getConnections = (id: string) => {
-      const connections: { id: string; type: string }[] = [];
-      relationships.forEach(rel => {
-        if (rel.sourceId === id && elementExists(rel.targetId, rel.targetType)) {
-          connections.push({ id: rel.targetId, type: rel.targetType });
-        }
-        if (rel.targetId === id && elementExists(rel.sourceId, rel.sourceType)) {
-          connections.push({ id: rel.sourceId, type: rel.sourceType });
-        }
-      });
-      return connections;
-    };
+    // ── Lookup helpers (built once, O(1) per call) ────────────────────
+    const entityTypeById = new Map<string, string>();
+    for (const e of longTermObjectives) entityTypeById.set(e.id, 'lto');
+    for (const e of annualObjectives) entityTypeById.set(e.id, 'ao');
+    for (const e of initiatives) entityTypeById.set(e.id, 'initiative');
+    for (const e of kpis) entityTypeById.set(e.id, 'kpi');
+    for (const e of owners) entityTypeById.set(e.id, 'owner');
 
-    const getRank = (type: string) => {
+    const getRank = (type: string): number => {
       switch (type) {
         case 'lto': return 0;
         case 'ao': return 1;
@@ -848,42 +859,54 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
       }
     };
 
-    // Recursive Traversal
-    const traverse = (currentId: string, currentType: string, direction: 'up' | 'down') => {
-      const currentRank = getRank(currentType);
-      const connections = getConnections(currentId);
+    // ── BFS traversal in a given direction ────────────────────────────
+    const traverseDirection = (startId: string, startType: string, direction: 'up' | 'down') => {
+      const queue: { id: string; type: string }[] = [{ id: startId, type: startType }];
+      const visited = new Set<string>();
+      visited.add(startId);
 
-      connections.forEach(conn => {
-        // Prevent cycles
-        if (related.has(conn.id)) return;
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        const currentRank = getRank(current.type);
+        const neighbors = adjacency.get(current.id);
+        if (!neighbors) continue;
 
-        const connRank = getRank(conn.type);
-        let isValidStep = false;
+        for (const neighborId of neighbors) {
+          if (visited.has(neighborId)) continue;
 
-        // Special case: KPI <-> Owner (they should always highlight each other)
-        if ((currentType === 'kpi' && conn.type === 'owner') || 
-            (currentType === 'owner' && conn.type === 'kpi')) {
-          isValidStep = true;
-        } else if (direction === 'up') {
-          // Going to Root: Look for LOWER rank number (0 is root)
-          isValidStep = connRank < currentRank;
-        } else {
-          // Going to Leaves: Look for HIGHER rank number
-          isValidStep = connRank > currentRank;
+          const neighborType = entityTypeById.get(neighborId);
+          if (!neighborType) continue;
+
+          const neighborRank = getRank(neighborType);
+
+          // KPI ↔ Owner are peers (rank 3 & 4) — always propagate between them
+          const isKpiOwnerPeer =
+            (current.type === 'kpi' && neighborType === 'owner') ||
+            (current.type === 'owner' && neighborType === 'kpi');
+
+          let isValidStep = false;
+
+          if (isKpiOwnerPeer) {
+            // Always allow KPI↔Owner traversal regardless of direction
+            isValidStep = true;
+          } else if (direction === 'up' && neighborRank < currentRank) {
+            isValidStep = true;
+          } else if (direction === 'down' && neighborRank > currentRank) {
+            isValidStep = true;
+          }
+
+          if (isValidStep) {
+            visited.add(neighborId);
+            related.add(neighborId);
+            queue.push({ id: neighborId, type: neighborType });
+          }
         }
-
-        if (isValidStep) {
-          related.add(conn.id);
-          traverse(conn.id, conn.type, direction);
-        }
-      });
+      }
     };
 
-    // Highlight Ancestors (Path to Root)
-    traverse(elementId, elementType, 'up');
-
-    // Highlight Descendants (Tree View)
-    traverse(elementId, elementType, 'down');
+    // Traverse both directions from the hovered element
+    traverseDirection(elementId, elementType, 'up');
+    traverseDirection(elementId, elementType, 'down');
 
     return related;
   },

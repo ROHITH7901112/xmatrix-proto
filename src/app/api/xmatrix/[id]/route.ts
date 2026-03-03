@@ -1,7 +1,7 @@
-// XMatrix API Routes - GET, PUT, DELETE by ID
+// XMatrix API Routes - GET, PUT, DELETE, PATCH by ID
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getXMatrixById, updateXMatrix, deleteXMatrix } from '@/lib/db';
+import { getXMatrixById, updateXMatrix, deleteXMatrix, bulkSyncEntities } from '@/lib/db';
 
 interface RouteParams {
     params: Promise<{ id: string }>;
@@ -73,6 +73,34 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         console.error('Error deleting XMatrix:', error);
         return NextResponse.json(
             { error: 'Failed to delete XMatrix' },
+            { status: 500 }
+        );
+    }
+}
+
+// PATCH /api/xmatrix/[id] - Bulk sync all draft changes in a single atomic transaction
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+    try {
+        const { id } = await params;
+        const { draft, original } = await request.json();
+
+        if (!draft || !original) {
+            return NextResponse.json(
+                { error: 'Missing required fields: draft, original' },
+                { status: 400 }
+            );
+        }
+
+        // Atomic bulk sync: diffs entities + replaces relationships in one transaction
+        bulkSyncEntities(id, draft, original);
+
+        // Return freshly-read authoritative state from DB
+        const saved = getXMatrixById(id);
+        return NextResponse.json(saved);
+    } catch (error) {
+        console.error('Error syncing XMatrix:', error);
+        return NextResponse.json(
+            { error: 'Failed to sync XMatrix changes' },
             { status: 500 }
         );
     }
