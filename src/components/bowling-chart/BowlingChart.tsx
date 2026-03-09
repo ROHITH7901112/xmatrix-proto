@@ -1,10 +1,17 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useXMatrixStore } from '@/lib/store';
-import { cn, getHealthClass, getTrendIcon, getTrendColor, getStatusLabel } from '@/lib/utils';
-import { KPI, HealthStatus, Owner } from '@/lib/types';
+import { cn, getHealthClass, getTrendColor, getStatusLabel } from '@/lib/utils';
+import { KPI, HealthStatus, Owner, MonthlyKPIData } from '@/lib/types';
+import {
+  formatValue,
+  formatVariance,
+  computeVariance,
+  computeVariancePercent,
+  isLowerBetter,
+} from '@/lib/kpi-calculations';
 import {
   ChevronDown,
   ChevronRight,
@@ -14,48 +21,144 @@ import {
   Filter,
   Search,
   X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Loader2,
 } from 'lucide-react';
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Current month index (0-based). In production, derive from real date.
+const CURRENT_MONTH_INDEX = new Date().getMonth(); // 0 = Jan
+const CURRENT_YEAR = new Date().getFullYear();
+
+// ============================================================================
+// SORT TYPES
+// ============================================================================
+type SortField = 'code' | 'title' | 'health' | 'trend' | 'unit' | 'owner' | 'variance';
+type SortDirection = 'asc' | 'desc';
+
+interface SortState {
+  field: SortField | null;
+  direction: SortDirection;
+}
+
+// ============================================================================
+// MAIN BOWLING CHART
+// ============================================================================
 export function BowlingChart() {
-  const { data, setHoveredElement, setSelectedElement, viewState } = useXMatrixStore();
+  const { data, fetchData, setHoveredElement, setSelectedElement, updateMonthlyKpiData } = useXMatrixStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  // Always fetch fresh data when this page mounts — ensures newly created KPIs appear
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
   const [filters, setFilters] = useState({
     health: null as HealthStatus | null,
     owner: null as string | null,
     search: '',
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [sort, setSort] = useState<SortState>({ field: null, direction: 'asc' });
+  const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
 
-  const toggleRow = (id: string) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedRows(newExpanded);
-  };
+  const toggleRow = useCallback((id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
+  // Filtering
   const filteredKpis = useMemo(() => {
     return data.kpis.filter((kpi) => {
       if (filters.health && kpi.health !== filters.health) return false;
       if (filters.owner && !kpi.ownerIds.includes(filters.owner)) return false;
-      if (filters.search && !kpi.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        if (!kpi.title.toLowerCase().includes(q) && !kpi.code.toLowerCase().includes(q)) return false;
+      }
       return true;
     });
   }, [data.kpis, filters]);
 
-  const getOwnersByIds = (ids: string[]): Owner[] => {
+  // Sorting
+  const sortedKpis = useMemo(() => {
+    if (!sort.field) return filteredKpis;
+
+    const sorted = [...filteredKpis].sort((a, b) => {
+      let cmp = 0;
+      switch (sort.field) {
+        case 'code':
+          cmp = a.code.localeCompare(b.code);
+          break;
+        case 'title':
+          cmp = a.title.localeCompare(b.title);
+          break;
+        case 'health': {
+          const order: Record<string, number> = { 'off-track': 0, 'at-risk': 1, 'on-track': 2 };
+          cmp = (order[a.health] ?? 0) - (order[b.health] ?? 0);
+          break;
+        }
+        case 'trend': {
+          const order: Record<string, number> = { 'down': 0, 'stable': 1, 'up': 2 };
+          cmp = (order[a.trend] ?? 0) - (order[b.trend] ?? 0);
+          break;
+        }
+        case 'unit':
+          cmp = a.unit.localeCompare(b.unit);
+          break;
+        case 'owner': {
+          const aOwner = data.owners.find(o => a.ownerIds.includes(o.id))?.name || '';
+          const bOwner = data.owners.find(o => b.ownerIds.includes(o.id))?.name || '';
+          cmp = aOwner.localeCompare(bOwner);
+          break;
+        }
+        case 'variance': {
+          const aData = a.monthlyData.find(m => m.month === months[CURRENT_MONTH_INDEX]);
+          const bData = b.monthlyData.find(m => m.month === months[CURRENT_MONTH_INDEX]);
+          const aVar = aData?.variance ?? -Infinity;
+          const bVar = bData?.variance ?? -Infinity;
+          cmp = aVar - bVar;
+          break;
+        }
+      }
+      return sort.direction === 'asc' ? cmp : -cmp;
+    });
+
+    return sorted;
+  }, [filteredKpis, sort, data.owners]);
+
+  const getOwnersByIds = useCallback((ids: string[]): Owner[] => {
     return data.owners.filter((o) => ids.includes(o.id));
-  };
+  }, [data.owners]);
 
   const clearFilters = () => {
     setFilters({ health: null, owner: null, search: '' });
   };
 
   const hasActiveFilters = filters.health || filters.owner || filters.search;
+
+  const toggleSort = useCallback((field: SortField) => {
+    setSort(prev => {
+      if (prev.field === field) {
+        if (prev.direction === 'asc') return { field, direction: 'desc' };
+        return { field: null, direction: 'asc' }; // Third click clears
+      }
+      return { field, direction: 'asc' };
+    });
+  }, []);
+
+  const SortIcon = useCallback(({ field }: { field: SortField }) => {
+    if (sort.field !== field) return <ArrowUpDown className="w-3 h-3 text-slate-600" />;
+    return sort.direction === 'asc'
+      ? <ArrowUp className="w-3 h-3 text-blue-400" />
+      : <ArrowDown className="w-3 h-3 text-blue-400" />;
+  }, [sort]);
 
   return (
     <div className="flex flex-col h-full">
@@ -64,8 +167,28 @@ export function BowlingChart() {
         <div className="flex items-center gap-4">
           <h2 className="text-lg font-semibold text-white">KPI Scorecard</h2>
           <span className="px-2 py-0.5 text-xs font-medium text-slate-400 bg-slate-800 rounded">
-            {filteredKpis.length} of {data.kpis.length} KPIs
+            {sortedKpis.length} of {data.kpis.length} KPIs
           </span>
+          {/* Year Selector */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedYear(y => y - 1)}
+              className="flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              title="Previous year"
+            >
+              ‹
+            </button>
+            <span className="px-3 py-1 text-sm font-medium text-white bg-slate-800 rounded-md min-w-[80px] text-center">
+              {selectedYear}
+            </span>
+            <button
+              onClick={() => setSelectedYear(y => y + 1)}
+              className="flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              title="Next year"
+            >
+              ›
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -85,27 +208,23 @@ export function BowlingChart() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
-              'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-              showFilters
-                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                : 'bg-slate-800/50 text-slate-400 hover:text-white border border-slate-700'
+              'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors',
+              showFilters || hasActiveFilters
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white'
             )}
           >
             <Filter className="w-4 h-4" />
             Filters
-            {hasActiveFilters && (
-              <span className="flex items-center justify-center w-5 h-5 text-xs bg-blue-500 text-white rounded-full">
-                {[filters.health, filters.owner].filter(Boolean).length}
-              </span>
-            )}
           </button>
 
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
-              className="flex items-center gap-1 px-2 py-2 text-slate-400 hover:text-white transition-colors"
+              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
             >
               <X className="w-4 h-4" />
+              Clear
             </button>
           )}
         </div>
@@ -168,25 +287,55 @@ export function BowlingChart() {
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-slate-900">
             <tr className="border-b border-slate-800">
-              <th className="sticky left-0 z-20 bg-slate-900 px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider w-64">
-                KPI
+              <th
+                className="sticky left-0 z-20 bg-slate-900 px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider w-64 cursor-pointer hover:text-white transition-colors"
+                onClick={() => toggleSort('title')}
+              >
+                <div className="flex items-center gap-1">
+                  KPI <SortIcon field="title" />
+                </div>
               </th>
-              <th className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-20">
-                Status
+              <th
+                className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-20 cursor-pointer hover:text-white transition-colors"
+                onClick={() => toggleSort('health')}
+              >
+                <div className="flex items-center justify-center gap-1">
+                  Status <SortIcon field="health" />
+                </div>
               </th>
-              <th className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-16">
-                Trend
+              <th
+                className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-16 cursor-pointer hover:text-white transition-colors"
+                onClick={() => toggleSort('trend')}
+              >
+                <div className="flex items-center justify-center gap-1">
+                  Trend <SortIcon field="trend" />
+                </div>
               </th>
-              <th className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-16">
-                Unit
+              <th
+                className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-16 cursor-pointer hover:text-white transition-colors"
+                onClick={() => toggleSort('unit')}
+              >
+                <div className="flex items-center justify-center gap-1">
+                  Unit <SortIcon field="unit" />
+                </div>
               </th>
-              <th className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider w-40">
-                Owner
+              <th
+                className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider w-40 cursor-pointer hover:text-white transition-colors"
+                onClick={() => toggleSort('owner')}
+              >
+                <div className="flex items-center gap-1">
+                  Owner <SortIcon field="owner" />
+                </div>
               </th>
-              {months.map((month) => (
+              {months.map((month, idx) => (
                 <th
                   key={month}
-                  className="px-2 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-24"
+                  className={cn(
+                    'px-2 py-3 text-center text-xs font-semibold uppercase tracking-wider w-24',
+                    idx === CURRENT_MONTH_INDEX
+                      ? 'text-blue-400 bg-blue-500/5'
+                      : 'text-slate-400'
+                  )}
                 >
                   {month}
                 </th>
@@ -194,8 +343,8 @@ export function BowlingChart() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/50">
-            {filteredKpis.map((kpi, index) => (
-              <KPIRow
+            {sortedKpis.map((kpi, index) => (
+              <MemoizedKPIRow
                 key={kpi.id}
                 kpi={kpi}
                 owners={getOwnersByIds(kpi.ownerIds)}
@@ -203,9 +352,17 @@ export function BowlingChart() {
                 onToggle={() => toggleRow(kpi.id)}
                 onHover={(hover) => setHoveredElement(hover ? { id: kpi.id, type: 'kpi' } : null)}
                 onClick={() => setSelectedElement({ id: kpi.id, type: 'kpi' })}
+                onUpdateMonthly={updateMonthlyKpiData}
                 index={index}
               />
             ))}
+            {sortedKpis.length === 0 && (
+              <tr>
+                <td colSpan={5 + months.length} className="px-6 py-12 text-center text-slate-500">
+                  No KPIs match your filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -213,6 +370,9 @@ export function BowlingChart() {
   );
 }
 
+// ============================================================================
+// MEMOIZED KPI ROW
+// ============================================================================
 interface KPIRowProps {
   kpi: KPI;
   owners: Owner[];
@@ -220,165 +380,451 @@ interface KPIRowProps {
   onToggle: () => void;
   onHover: (hover: boolean) => void;
   onClick: () => void;
+  onUpdateMonthly: (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
   index: number;
 }
 
-function KPIRow({ kpi, owners, isExpanded, onToggle, onHover, onClick, index }: KPIRowProps) {
+const MemoizedKPIRow = React.memo(function KPIRow({
+  kpi,
+  owners,
+  isExpanded,
+  onToggle,
+  onHover,
+  onClick,
+  onUpdateMonthly,
+  index,
+}: KPIRowProps) {
   const TrendIcon = kpi.trend === 'up' ? TrendingUp : kpi.trend === 'down' ? TrendingDown : Minus;
-  const currentMonth = 0; // January
+  const lowerBetter = isLowerBetter(kpi.unit, kpi.code);
 
   return (
-    <motion.tr
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.03 }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      onClick={onClick}
-      className="group hover:bg-slate-800/30 cursor-pointer transition-colors"
-    >
-      {/* KPI Name */}
-      <td className="sticky left-0 z-10 bg-slate-950 group-hover:bg-slate-900/95 px-4 py-3 transition-colors">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle();
-            }}
-            className="flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
-          >
-            {isExpanded ? (
-              <ChevronDown className="w-4 h-4" />
-            ) : (
-              <ChevronRight className="w-4 h-4" />
-            )}
-          </button>
-          <div className="flex flex-col">
-            <span className="text-xs font-medium text-slate-500">{kpi.code}</span>
-            <span className="text-sm font-medium text-white">{kpi.title}</span>
-          </div>
-        </div>
-      </td>
-
-      {/* Status */}
-      <td className="px-3 py-3 text-center">
-        <span
-          className={cn(
-            'inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full border capitalize',
-            getHealthClass(kpi.health)
-          )}
-        >
-          {kpi.health === 'on-track' ? '●' : kpi.health === 'at-risk' ? '◐' : '○'}
-        </span>
-      </td>
-
-      {/* Trend */}
-      <td className="px-3 py-3">
-        <div className="flex items-center justify-center">
-          <TrendIcon
-            className={cn(
-              'w-4 h-4',
-              getTrendColor(kpi.trend, kpi.unit !== 'days' && kpi.unit !== '%' || kpi.code !== 'K-6')
-            )}
-          />
-        </div>
-      </td>
-
-      {/* Unit */}
-      <td className="px-3 py-3 text-center text-sm text-slate-400">{kpi.unit}</td>
-
-      {/* Owner */}
-      <td className="px-3 py-3">
-        <div className="flex items-center gap-1">
-          {owners.slice(0, 2).map((owner) => (
-            <div
-              key={owner.id}
-              className="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-white text-xs font-medium"
-              title={`${owner.name} - ${owner.role}`}
+    <>
+      <motion.tr
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: index * 0.03 }}
+        onMouseEnter={() => onHover(true)}
+        onMouseLeave={() => onHover(false)}
+        onClick={onClick}
+        className="group hover:bg-slate-800/30 cursor-pointer transition-colors"
+      >
+        {/* KPI Name */}
+        <td className="sticky left-0 z-10 bg-slate-950 group-hover:bg-slate-900/95 px-4 py-3 transition-colors">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+              className="flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
             >
-              {owner.initials}
+              {isExpanded ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+            </button>
+            <div className="flex flex-col">
+              <span className="text-xs font-medium text-slate-500">{kpi.code}</span>
+              <span className="text-sm font-medium text-white">{kpi.title}</span>
             </div>
-          ))}
-          {owners.length > 2 && (
-            <span className="text-xs text-slate-500">+{owners.length - 2}</span>
-          )}
-        </div>
-      </td>
-
-      {/* Monthly Data */}
-      {kpi.monthlyData.map((data, monthIndex) => (
-        <td key={data.month} className="px-1 py-2">
-          <MonthlyCell
-            target={data.target}
-            actual={data.actual}
-            variance={data.variance}
-            unit={kpi.unit}
-            isPast={monthIndex <= currentMonth}
-            isCurrent={monthIndex === currentMonth}
-          />
+          </div>
         </td>
-      ))}
-    </motion.tr>
+
+        {/* Status */}
+        <td className="px-3 py-3 text-center">
+          <span
+            className={cn(
+              'inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full border capitalize',
+              getHealthClass(kpi.health)
+            )}
+          >
+            {kpi.health === 'on-track' ? '●' : kpi.health === 'at-risk' ? '◐' : '○'}
+          </span>
+        </td>
+
+        {/* Trend */}
+        <td className="px-3 py-3">
+          <div className="flex items-center justify-center">
+            <TrendIcon
+              className={cn(
+                'w-4 h-4',
+                getTrendColor(kpi.trend, !lowerBetter)
+              )}
+            />
+          </div>
+        </td>
+
+        {/* Unit */}
+        <td className="px-3 py-3 text-center text-sm text-slate-400">{kpi.unit}</td>
+
+        {/* Owner */}
+        <td className="px-3 py-3">
+          <div className="flex items-center gap-1">
+            {owners.slice(0, 2).map((owner) => (
+              <div
+                key={owner.id}
+                className="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-white text-xs font-medium"
+                title={`${owner.name} - ${owner.role}`}
+              >
+                {owner.initials}
+              </div>
+            ))}
+            {owners.length > 2 && (
+              <span className="text-xs text-slate-500">+{owners.length - 2}</span>
+            )}
+          </div>
+        </td>
+
+        {/* Monthly Data Cells */}
+        {kpi.monthlyData.map((monthData, monthIndex) => (
+          <td key={monthData.month} className="px-1 py-2">
+            <EditableMonthlyCell
+              kpiId={kpi.id}
+              monthData={monthData}
+              unit={kpi.unit}
+              monthIndex={monthIndex}
+              onSave={onUpdateMonthly}
+            />
+          </td>
+        ))}
+      </motion.tr>
+
+      {/* Expanded Detail Row */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.tr
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <td colSpan={5 + months.length} className="bg-slate-900/30 px-8 py-4 border-b border-slate-800">
+              <ExpandedKPIDetail kpi={kpi} />
+            </td>
+          </motion.tr>
+        )}
+      </AnimatePresence>
+    </>
   );
-}
+});
 
-interface MonthlyCellProps {
-  target: number;
-  actual: number | null;
-  variance: number | null;
+// ============================================================================
+// EDITABLE MONTHLY CELL — Edit state is local (no store re-render per keystroke)
+// Supports editing both actual AND target values
+// ============================================================================
+interface EditableMonthlyCellProps {
+  kpiId: string;
+  monthData: MonthlyKPIData;
   unit: string;
-  isPast: boolean;
-  isCurrent: boolean;
+  monthIndex: number;
+  onSave: (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
 }
 
-function MonthlyCell({ target, actual, variance, unit, isPast, isCurrent }: MonthlyCellProps) {
+function EditableMonthlyCell({ kpiId, monthData, unit, monthIndex, onSave }: EditableMonthlyCellProps) {
+  const [isEditingActual, setIsEditingActual] = useState(false);
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const isPast = monthIndex <= CURRENT_MONTH_INDEX;
+  const isCurrent = monthIndex === CURRENT_MONTH_INDEX;
+  const isFuture = monthIndex > CURRENT_MONTH_INDEX;
+
+  const handleStartEditActual = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't trigger row click
+    if (isFuture) return; // Can't edit future months
+    setEditValue(monthData.actual !== null ? String(monthData.actual) : '');
+    setIsEditingActual(true);
+  }, [isFuture, monthData.actual]);
+
+  const handleStartEditTarget = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditValue(String(monthData.target));
+    setIsEditingTarget(true);
+  }, [monthData.target]);
+
+  useEffect(() => {
+    if ((isEditingActual || isEditingTarget) && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditingActual, isEditingTarget]);
+
+  const handleSave = useCallback(async () => {
+    const trimmed = editValue.trim();
+    let newValue: number | null = null;
+
+    if (isEditingActual && (trimmed === '' || trimmed === '—')) {
+      newValue = null; // Clear actual value
+    } else {
+      const parsed = parseFloat(trimmed);
+      if (isNaN(parsed)) {
+        // Invalid — cancel edit
+        setIsEditingActual(false);
+        setIsEditingTarget(false);
+        return;
+      }
+      newValue = Math.round(parsed * 100) / 100; // 2 decimal places 
+    }
+
+    // Don't save if nothing changed
+    if (isEditingActual && newValue === monthData.actual) {
+      setIsEditingActual(false);
+      return;
+    }
+    if (isEditingTarget && newValue === monthData.target) {
+      setIsEditingTarget(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      if (isEditingActual) {
+        await onSave(kpiId, monthData.month, { actual: newValue });
+      } else if (isEditingTarget) {
+        await onSave(kpiId, monthData.month, { target: newValue as number });
+      }
+    } finally {
+      setIsSaving(false);
+      setIsEditingActual(false);
+      setIsEditingTarget(false);
+    }
+  }, [editValue, monthData.actual, monthData.target, monthData.month, kpiId, onSave, isEditingActual, isEditingTarget]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      setIsEditingActual(false);
+      setIsEditingTarget(false);
+    } else if (e.key === 'Tab') {
+      handleSave();
+      // Don't prevent default — let Tab naturally move focus
+    }
+  }, [handleSave]);
+
   const getVarianceColor = (v: number | null) => {
-    if (v === null) return 'bg-slate-800';
+    if (v === null) return 'bg-slate-800 border-slate-800';
     if (v >= 0) return 'bg-emerald-500/20 border-emerald-500/30';
     if (v >= -5) return 'bg-yellow-500/20 border-yellow-500/30';
     return 'bg-red-500/20 border-red-500/30';
   };
 
-  const formatValue = (v: number) => {
-    if (unit === '$M') return v.toFixed(1);
-    if (unit === '%') return v.toFixed(0);
-    return v.toFixed(0);
-  };
+  // Editing state
+  if (isEditingActual || isEditingTarget) {
+    return (
+      <div className="relative flex flex-col items-center p-1 rounded-md border-2 border-blue-500 bg-slate-800 min-h-[48px]">
+        <div className="text-[10px] text-slate-500 leading-none">
+          {isEditingTarget ? 'Target' : `T: ${formatValue(monthData.target, unit)}`}
+        </div>
+        <input
+          ref={inputRef}
+          type="text"
+          inputMode="decimal"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          className="w-full mt-0.5 px-1 py-0 text-xs font-semibold text-white text-center bg-transparent border-none outline-none"
+          style={{ maxWidth: '60px' }}
+        />
+        {isSaving && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-md">
+            <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+          </div>
+        )}
+      </div>
+    );
+  }
 
+  // Display state
   return (
     <div
       className={cn(
         'relative flex flex-col items-center p-1.5 rounded-md border transition-all min-h-[48px]',
-        isPast ? getVarianceColor(variance) : 'bg-slate-800/30 border-slate-800',
-        isCurrent && 'ring-1 ring-blue-500/50'
+        isPast ? getVarianceColor(monthData.variance) : 'bg-slate-800/30 border-slate-800',
+        isCurrent && 'ring-1 ring-blue-500/50',
+        isPast && 'cursor-pointer hover:ring-1 hover:ring-slate-500/50',
+        isFuture && 'opacity-50'
       )}
+      suppressHydrationWarning
+      title={isPast ? 'Double-click actual to edit | Ctrl+click target to edit' : 'Future month — not editable yet'}
     >
-      {/* Target */}
-      <div className="text-[10px] text-slate-500 leading-none">
-        T: {formatValue(target)}
+      {/* Target - Ctrl+Click to edit */}
+      <div 
+        className="text-[10px] text-slate-500 leading-none cursor-pointer hover:text-slate-400" 
+        suppressHydrationWarning
+        onClick={(e) => {
+          if (e.ctrlKey || e.metaKey) {
+            handleStartEditTarget(e);
+          }
+        }}
+        title="Ctrl+click to edit target"
+      >
+        T: {formatValue(monthData.target, unit)}
       </div>
 
-      {/* Actual */}
-      {actual !== null ? (
-        <div className="text-xs font-semibold text-white leading-tight mt-0.5">
-          {formatValue(actual)}
+      {/* Actual - Double-click to edit */}
+      {monthData.actual !== null ? (
+        <div 
+          className="text-xs font-semibold text-white leading-tight mt-0.5 cursor-pointer hover:text-blue-300" 
+          suppressHydrationWarning
+          onDoubleClick={handleStartEditActual}
+        >
+          {formatValue(monthData.actual, unit)}
         </div>
       ) : (
-        <div className="text-xs text-slate-600 leading-tight mt-0.5">—</div>
+        <div 
+          className="text-xs text-slate-600 leading-tight mt-0.5 cursor-pointer hover:text-slate-500" 
+          onDoubleClick={handleStartEditActual}
+          title="Double-click to add actual value"
+        >
+          —
+        </div>
       )}
 
-      {/* Variance indicator bar */}
-      {variance !== null && (
-        <div className="w-full h-1 mt-1 rounded-full bg-slate-700 overflow-hidden">
+      {/* Variance indicator bar — suppressHydrationWarning on both divs because
+           server renders with mockData values, client may have real DB values:
+           both className (colour) and style (width) are data-dependent. */}
+      {monthData.variance !== null && (
+        <div className="w-full h-1 mt-1 rounded-full bg-slate-700 overflow-hidden" suppressHydrationWarning>
           <div
+            suppressHydrationWarning
             className={cn(
               'h-full rounded-full transition-all',
-              variance >= 0 ? 'bg-emerald-500' : variance >= -5 ? 'bg-yellow-500' : 'bg-red-500'
+              monthData.variance >= 0 ? 'bg-emerald-500' : monthData.variance >= -5 ? 'bg-yellow-500' : 'bg-red-500'
             )}
-            style={{ width: `${Math.min(Math.abs(variance) + 50, 100)}%` }}
+            style={{
+              // Use variance-% for width so bars are comparable across KPIs of different scales.
+              // 50 % = neutral (0 variance), clamp 5–95 so bar is always slightly visible.
+              width: `${
+                Math.min(
+                  Math.max(
+                    50 + (computeVariancePercent(monthData.actual, monthData.target) ?? 0),
+                    5
+                  ),
+                  95
+                )
+              }%`,
+            }}
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// EXPANDED ROW DETAIL — Shows detailed month-by-month breakdown
+// ============================================================================
+function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
+  const lowerBetter = isLowerBetter(kpi.unit, kpi.code);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="flex items-center gap-8">
+        <div>
+          <span className="text-xs text-slate-500 uppercase tracking-wider">Current</span>
+          <p className="text-lg font-bold text-white" suppressHydrationWarning>{formatValue(kpi.currentValue, kpi.unit)} {kpi.unit}</p>
+        </div>
+        <div>
+          <span className="text-xs text-slate-500 uppercase tracking-wider">Target</span>
+          <p className="text-lg font-bold text-slate-300" suppressHydrationWarning>{formatValue(kpi.targetValue, kpi.unit)} {kpi.unit}</p>
+        </div>
+        <div>
+          <span className="text-xs text-slate-500 uppercase tracking-wider">Overall Variance</span>
+          <p className={cn(
+            'text-lg font-bold',
+            (kpi.currentValue - kpi.targetValue) >= 0 ? 'text-emerald-400' : 'text-red-400'
+          )} suppressHydrationWarning>
+            {formatVariance(kpi.currentValue - kpi.targetValue, kpi.unit)} {kpi.unit}
+          </p>
+        </div>
+      </div>
+
+      {/* Detailed monthly table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-slate-700">
+              <th className="px-2 py-1 text-left text-slate-500 font-medium w-20">Metric</th>
+              {months.map((m, idx) => (
+                <th
+                  key={m}
+                  className={cn(
+                    'px-2 py-1 text-center font-medium w-16',
+                    idx === CURRENT_MONTH_INDEX ? 'text-blue-400' : 'text-slate-500'
+                  )}
+                >
+                  {m}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {/* Target row */}
+            <tr className="border-b border-slate-800/50">
+              <td className="px-2 py-1.5 text-slate-400 font-medium">Target</td>
+              {kpi.monthlyData.map((m) => (
+                <td key={m.month} className="px-2 py-1.5 text-center text-slate-300" suppressHydrationWarning>
+                  {formatValue(m.target, kpi.unit)}
+                </td>
+              ))}
+            </tr>
+            {/* Actual row */}
+            <tr className="border-b border-slate-800/50">
+              <td className="px-2 py-1.5 text-slate-400 font-medium">Actual</td>
+              {kpi.monthlyData.map((m) => (
+                <td key={m.month} className="px-2 py-1.5 text-center font-semibold text-white" suppressHydrationWarning>
+                  {formatValue(m.actual, kpi.unit)}
+                </td>
+              ))}
+            </tr>
+            {/* Variance row */}
+            <tr className="border-b border-slate-800/50">
+              <td className="px-2 py-1.5 text-slate-400 font-medium">Δ Var</td>
+              {kpi.monthlyData.map((m) => (
+                <td
+                  key={m.month}
+                  className={cn(
+                    'px-2 py-1.5 text-center font-medium',
+                    m.variance === null ? 'text-slate-600' :
+                    m.variance >= 0 ? 'text-emerald-400' :
+                    m.variance >= -5 ? 'text-yellow-400' : 'text-red-400'
+                  )}
+                  suppressHydrationWarning
+                >
+                  {formatVariance(m.variance, kpi.unit)}
+                </td>
+              ))}
+            </tr>
+            {/* Variance % row */}
+            <tr>
+              <td className="px-2 py-1.5 text-slate-400 font-medium">Δ %</td>
+              {kpi.monthlyData.map((m) => {
+                const pct = computeVariancePercent(m.actual, m.target);
+                return (
+                  <td
+                    key={m.month}
+                    className={cn(
+                      'px-2 py-1.5 text-center font-medium',
+                      pct === null ? 'text-slate-600' :
+                      pct >= 0 ? 'text-emerald-400' :
+                      pct >= -5 ? 'text-yellow-400' : 'text-red-400'
+                    )}
+                    suppressHydrationWarning
+                  >
+                    {pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'}
+                  </td>
+                );
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

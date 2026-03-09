@@ -14,7 +14,8 @@ import {
   MonthlyKPIData,
   HealthStatus,
   Trend,
-  RelationshipStrength
+  RelationshipStrength,
+  TargetDistribution,
 } from './types';
 
 // Database file path - stored in project root
@@ -37,6 +38,21 @@ function initializeSchema(): void {
   const schemaPath = path.join(process.cwd(), 'src', 'lib', 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf-8');  // reads the SQL schema and then converts to string
   db!.exec(schema);  //db! means we are sure db is not null here
+  runMigrations();
+}
+
+/** Add new columns to existing databases without breaking existing data */
+function runMigrations(): void {
+  const addColumn = (table: string, column: string, definition: string) => {
+    try {
+      db!.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    } catch {
+      // Column already exists — ignore
+    }
+  };
+  addColumn('kpis', 'start_date', 'TEXT');
+  addColumn('kpis', 'end_date', 'TEXT');
+  addColumn('kpis', 'target_distribution', "TEXT DEFAULT 'equal'");
 }
 
 // ============ XMatrix CRUD ============
@@ -118,7 +134,7 @@ export function updateXMatrix(id: string, data: Partial<XMatrixData>): XMatrixDa
   `);
   
   stmt.run(   // If data already has that field , use it else use the existing value in the db.
-    data.name ?? current.name,  //?? is nullish coalescing operator
+    data.name ?? current.name,  //?? is nullish coalescing operator 
     data.vision ?? current.vision,
     data.trueNorth ?? current.trueNorth,
     data.periodStart ?? current.periodStart,
@@ -254,11 +270,11 @@ export function getLongTermObjectiveById(id: string): LongTermObjective | null {
     description: string;
     timeframe: string;
     health: string;
-  } | undefined;
+  } | undefined;  
   
   if (!row) return null;
   
-  return {
+  return { //
     id: row.id,
     code: row.code,
     title: row.title,
@@ -276,7 +292,7 @@ export function createLongTermObjective(xmatrixId: string, data: LongTermObjecti
   `);
   
   stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.timeframe, data.health);
-  return getLongTermObjectiveById(data.id)!;
+  return getLongTermObjectiveById(data.id)!; //the purpose of the ! at the end of this line? It is a non-null assertion operator in TypeScript. It tells the TypeScript compiler that we are certain that the value returned by getLongTermObjectiveById(data.id) will not be null or undefined. In this context, since we just inserted a new long-term objective with data.id, we expect that fetching it immediately afterward will succeed and return a valid LongTermObjective object. By using the ! operator, we avoid having to handle the case where it might return null, which simplifies our code. However, it's important to use this operator with caution, as it can lead to runtime errors if our assumption is incorrect.
 }
 
 export function updateLongTermObjective(id: string, data: Partial<LongTermObjective>): LongTermObjective | null {
@@ -287,7 +303,7 @@ export function updateLongTermObjective(id: string, data: Partial<LongTermObject
   const stmt = db.prepare(`
     UPDATE long_term_objectives SET code = ?, title = ?, description = ?, timeframe = ?, health = ?
     WHERE id = ?
-  `);
+  `); 
   
   stmt.run(
     data.code ?? current.code,
@@ -303,13 +319,13 @@ export function updateLongTermObjective(id: string, data: Partial<LongTermObject
 
 export function deleteLongTermObjective(id: string): boolean {
   const db = getDatabase();
-  const result = db.prepare('DELETE FROM long_term_objectives WHERE id = ?').run(id);
+  const result = db.prepare('DELETE FROM long_term_objectives WHERE id = ?').run(id); 
   return result.changes > 0;
 }
 
 // ============ Annual Objective CRUD ============
 
-export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective[] {
+export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective[] { 
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM annual_objectives WHERE xmatrix_id = ?').all(xmatrixId) as {
     id: string;
@@ -364,7 +380,7 @@ export function createAnnualObjective(xmatrixId: string, data: AnnualObjective):
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
-  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.year, data.health, data.progress);
+  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.year, data.health, data.progress); 
   return getAnnualObjectiveById(data.id)!;
 }
 
@@ -399,7 +415,7 @@ export function deleteAnnualObjective(id: string): boolean {
 
 // ============ Initiative CRUD ============
 
-export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] {
+export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] { 
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM initiatives WHERE xmatrix_id = ?').all(xmatrixId) as {
     id: string;
@@ -417,7 +433,7 @@ export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] {
     code: row.code,
     title: row.title,
     description: row.description,
-    priority: row.priority as Initiative['priority'],
+    priority: row.priority as Initiative['priority'], 
     health: row.health as HealthStatus,
     startDate: row.start_date,
     endDate: row.end_date,
@@ -506,6 +522,9 @@ export function getKPIsByXMatrix(xmatrixId: string): KPI[] {
     health: string;
     trend: string;
     owner_ids: string;
+    start_date: string | null;
+    end_date: string | null;
+    target_distribution: string | null;
   }[];
   
   return rows.map(row => ({
@@ -519,6 +538,9 @@ export function getKPIsByXMatrix(xmatrixId: string): KPI[] {
     trend: row.trend as Trend,
     ownerIds: JSON.parse(row.owner_ids || '[]'),
     monthlyData: getMonthlyDataByKPI(row.id),
+    startDate: row.start_date ?? undefined,
+    endDate: row.end_date ?? undefined,
+    targetDistribution: (row.target_distribution as TargetDistribution) ?? 'equal',
   }));
 }
 
@@ -534,6 +556,9 @@ export function getKPIById(id: string): KPI | null {
     health: string;
     trend: string;
     owner_ids: string;
+    start_date: string | null;
+    end_date: string | null;
+    target_distribution: string | null;
   } | undefined;
   
   if (!row) return null;
@@ -549,37 +574,43 @@ export function getKPIById(id: string): KPI | null {
     trend: row.trend as Trend,
     ownerIds: JSON.parse(row.owner_ids || '[]'),
     monthlyData: getMonthlyDataByKPI(row.id),
+    startDate: row.start_date ?? undefined,
+    endDate: row.end_date ?? undefined,
+    targetDistribution: (row.target_distribution as TargetDistribution) ?? 'equal',
   };
 }
 
 export function createKPI(xmatrixId: string, data: KPI): KPI {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO kpis (id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO kpis (id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids, start_date, end_date, target_distribution)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
   stmt.run(
-    data.id, 
-    xmatrixId, 
-    data.code, 
-    data.title, 
-    data.unit, 
-    data.currentValue, 
-    data.targetValue, 
-    data.health, 
-    data.trend, 
-    JSON.stringify(data.ownerIds)
+    data.id,
+    xmatrixId,
+    data.code,
+    data.title,
+    data.unit,
+    data.currentValue,
+    data.targetValue,
+    data.health,
+    data.trend,
+    JSON.stringify(data.ownerIds),
+    data.startDate ?? null,
+    data.endDate ?? null,
+    data.targetDistribution ?? 'equal'
   );
   
   // Insert monthly data
-  if (data.monthlyData && data.monthlyData.length > 0) {
+  if (data.monthlyData && data.monthlyData.length > 0) { //
     const monthlyStmt = db.prepare(`
       INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance)
       VALUES (?, ?, ?, ?, ?)
     `);
     
-    for (const monthly of data.monthlyData) {
+    for (const monthly of data.monthlyData) { // we loop through each monthly data entry and insert it into the monthly_kpi_data table, associating it with the newly created KPI using data.id as the kpi_id foreign key. This ensures that all monthly data for the KPI is properly stored in the database right after the KPI itself is created.
       monthlyStmt.run(data.id, monthly.month, monthly.target, monthly.actual, monthly.variance);
     }
   }
@@ -587,13 +618,13 @@ export function createKPI(xmatrixId: string, data: KPI): KPI {
   return getKPIById(data.id)!;
 }
 
-export function updateKPI(id: string, data: Partial<KPI>): KPI | null {
+export function updateKPI(id: string, data: Partial<KPI>): KPI | null { 
   const db = getDatabase();
   const current = getKPIById(id);
   if (!current) return null;
   
-  const stmt = db.prepare(`
-    UPDATE kpis SET code = ?, title = ?, unit = ?, current_value = ?, target_value = ?, health = ?, trend = ?, owner_ids = ?
+  const stmt = db.prepare(` 
+    UPDATE kpis SET code = ?, title = ?, unit = ?, current_value = ?, target_value = ?, health = ?, trend = ?, owner_ids = ?, start_date = ?, end_date = ?, target_distribution = ?
     WHERE id = ?
   `);
   
@@ -606,6 +637,9 @@ export function updateKPI(id: string, data: Partial<KPI>): KPI | null {
     data.health ?? current.health,
     data.trend ?? current.trend,
     JSON.stringify(data.ownerIds ?? current.ownerIds),
+    data.startDate ?? current.startDate ?? null,
+    data.endDate ?? current.endDate ?? null,
+    data.targetDistribution ?? current.targetDistribution ?? 'equal',
     id
   );
   
@@ -621,6 +655,8 @@ export function deleteKPI(id: string): boolean {
 
 // ============ Monthly KPI Data ============
 
+const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export function getMonthlyDataByKPI(kpiId: string): MonthlyKPIData[] {
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM monthly_kpi_data WHERE kpi_id = ? ORDER BY id').all(kpiId) as {
@@ -630,12 +666,21 @@ export function getMonthlyDataByKPI(kpiId: string): MonthlyKPIData[] {
     variance: number | null;
   }[];
   
-  return rows.map(row => ({
+  const monthlyData = rows.map(row => ({
     month: row.month,
     target: row.target,
     actual: row.actual,
     variance: row.variance,
   }));
+
+  // Ensure all 12 months exist with defaults for missing months
+  const monthMap = new Map(monthlyData.map(m => [m.month, m]));
+  
+  return ALL_MONTHS.map(month => {
+    const existing = monthMap.get(month);
+    if (existing) return existing;
+    return { month, target: 0, actual: null, variance: null };
+  });
 }
 
 // ============ Relationship CRUD ============
@@ -762,17 +807,17 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
 
     // --- KPIs ---
     const kpiDiff = diff(original.kpis, draft.kpis);
-    const kpiInsert = db.prepare('INSERT INTO kpis (id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    const kpiUpdate = db.prepare('UPDATE kpis SET code=?, title=?, unit=?, current_value=?, target_value=?, health=?, trend=?, owner_ids=? WHERE id=?');
+    const kpiInsert = db.prepare('INSERT INTO kpis (id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids, start_date, end_date, target_distribution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const kpiUpdate = db.prepare('UPDATE kpis SET code=?, title=?, unit=?, current_value=?, target_value=?, health=?, trend=?, owner_ids=?, start_date=?, end_date=?, target_distribution=? WHERE id=?');
     const kpiDelete = db.prepare('DELETE FROM kpis WHERE id=?');
     const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance) VALUES (?, ?, ?, ?, ?)');
     const monthlyDeleteByKpi = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id=?');
     for (const e of kpiDiff.added) {
-      kpiInsert.run(e.id, xmatrixId, e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds));
+      kpiInsert.run(e.id, xmatrixId, e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds), e.startDate ?? null, e.endDate ?? null, e.targetDistribution ?? 'equal');
       if (e.monthlyData) for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
     }
     for (const e of kpiDiff.updated) {
-      kpiUpdate.run(e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds), e.id);
+      kpiUpdate.run(e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds), e.startDate ?? null, e.endDate ?? null, e.targetDistribution ?? 'equal', e.id);
       // Re-sync monthly data for updated KPIs
       monthlyDeleteByKpi.run(e.id);
       if (e.monthlyData) for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);

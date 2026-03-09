@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -29,6 +29,23 @@ type HealthStatus = 'on-track' | 'at-risk' | 'off-track';
 type Priority = 'critical' | 'high' | 'medium' | 'low';
 type Trend = 'up' | 'down' | 'stable';
 type ResponsibilityType = 'accountable' | 'responsible' | 'consulted' | 'informed';
+type TargetDistribution = 'equal' | 'linear' | 'front-loaded' | 'back-loaded';
+
+const KPI_UNITS = [
+  { value: '%', label: '% — Percentage' },
+  { value: '$', label: '$ — US Dollar' },
+  { value: '₹', label: '₹ — Indian Rupee' },
+  { value: '€', label: '€ — Euro' },
+  { value: '£', label: '£ — British Pound' },
+  { value: '¥', label: '¥ — Japanese Yen' },
+  { value: '#', label: '# — Count / Units' },
+  { value: 'hrs', label: 'hrs — Hours' },
+  { value: 'days', label: 'days — Days' },
+  { value: 'pts', label: 'pts — Points' },
+  { value: 'x', label: 'x — Multiplier / Ratio' },
+  { value: 'NPS', label: 'NPS — Net Promoter Score' },
+  { value: 'custom', label: 'custom — Other' },
+];
 
 interface LongTermObjective {
     id: string;
@@ -70,6 +87,9 @@ interface KPI {
     health: HealthStatus;
     trend: Trend;
     ownerIds: string[];
+    startDate?: string;
+    endDate?: string;
+    targetDistribution?: TargetDistribution;
 }
 
 interface Owner {
@@ -483,6 +503,52 @@ function InitiativeForm({
 }
 
 // KPI Form
+// ========== Target distribution helper ==========
+const ALL_MONTHS_BC = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function computeDistributedTargets(
+    totalTarget: number,
+    startDate: string,
+    endDate: string,
+    distribution: TargetDistribution,
+): { month: string; target: number; actual: null; variance: null }[] {
+    if (!startDate || !endDate) {
+        const perMonth = totalTarget / 12;
+        return ALL_MONTHS_BC.map(month => ({ month, target: Math.round(perMonth * 100) / 100, actual: null, variance: null }));
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const activeIndices: number[] = [];
+    for (let i = 0; i < 12; i++) {
+        const monthDate = new Date(start.getFullYear(), i, 1);
+        const monthEnd = new Date(start.getFullYear(), i + 1, 0);
+        if (monthEnd >= start && monthDate <= end) activeIndices.push(i);
+    }
+    if (activeIndices.length === 0) {
+        return ALL_MONTHS_BC.map(month => ({ month, target: 0, actual: null, variance: null }));
+    }
+    const n = activeIndices.length;
+    let weights: number[];
+    switch (distribution) {
+        case 'linear': weights = activeIndices.map((_, idx) => idx + 1); break;
+        case 'front-loaded': weights = activeIndices.map((_, idx) => n - idx); break;
+        case 'back-loaded': weights = activeIndices.map((_, idx) => idx + 1); break;
+        default: weights = activeIndices.map(() => 1);
+    }
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    const targets = weights.map(w => Math.round((totalTarget * w / totalWeight) * 100) / 100);
+    const diff = totalTarget - targets.reduce((a, b) => a + b, 0);
+    targets[targets.length - 1] = Math.round((targets[targets.length - 1] + diff) * 100) / 100;
+    const targetMap = new Map<number, number>(activeIndices.map((mi, i) => [mi, targets[i]]));
+    return ALL_MONTHS_BC.map((month, idx) => ({
+        month,
+        target: targetMap.get(idx) ?? 0,
+        actual: null,
+        variance: null,
+    }));
+}
+
+// KPI Form
 function KPIForm({
     initialData,
     existingItems,
@@ -492,10 +558,11 @@ function KPIForm({
 }: {
     initialData?: KPI;
     existingItems?: KPI[];
-    onSubmit: (data: KPI) => void;
+    onSubmit: (data: KPI & { monthlyData: { month: string; target: number; actual: null; variance: null }[] }) => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const today = new Date().toISOString().split('T')[0];
     const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'K') : '';
     const [formData, setFormData] = useState<KPI>(initialData || {
         id: generateId('kpi'),
@@ -507,18 +574,93 @@ function KPIForm({
         health: 'on-track',
         trend: 'stable',
         ownerIds: [],
+        startDate: today,
+        endDate: new Date(new Date().getFullYear(), 11, 31).toISOString().split('T')[0],
+        targetDistribution: 'equal',
     });
 
+    const previewMonthly = computeDistributedTargets(
+        formData.targetValue,
+        formData.startDate || '',
+        formData.endDate || '',
+        formData.targetDistribution || 'equal',
+    );
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSubmit({
+            ...formData,
+            monthlyData: computeDistributedTargets(
+                formData.targetValue,
+                formData.startDate || '',
+                formData.endDate || '',
+                formData.targetDistribution || 'equal',
+            ),
+        });
+    };
+
     return (
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
                 <FormInput label="Code" placeholder="K-1" value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })} required />
-                <FormInput label="Unit" placeholder="%" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} required />
+                {/* Unit dropdown */}
+                <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-300">Unit</label>
+                    <select
+                        value={KPI_UNITS.some(u => u.value === formData.unit) ? formData.unit : 'custom'}
+                        onChange={(e) => {
+                            if (e.target.value === 'custom') setFormData({ ...formData, unit: '' });
+                            else setFormData({ ...formData, unit: e.target.value });
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    >
+                        {KPI_UNITS.map(u => (
+                            <option key={u.value} value={u.value}>{u.label}</option>
+                        ))}
+                    </select>
+                    {(!KPI_UNITS.some(u => u.value === formData.unit) || formData.unit === '') && (
+                        <input
+                            type="text"
+                            placeholder="Enter custom unit…"
+                            value={formData.unit}
+                            onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                            required
+                            className="w-full px-3 py-2 mt-1 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        />
+                    )}
+                </div>
             </div>
             <FormInput label="Title" placeholder="Enterprise Win Rate" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
             <div className="grid grid-cols-2 gap-4">
                 <FormInput label="Current Value" type="number" step="0.01" value={formData.currentValue} onChange={(e) => setFormData({ ...formData, currentValue: parseFloat(e.target.value) || 0 })} required />
-                <FormInput label="Target Value" type="number" step="0.01" value={formData.targetValue} onChange={(e) => setFormData({ ...formData, targetValue: parseFloat(e.target.value) || 0 })} required />
+                <FormInput label={`Annual Target (${formData.unit || '?'})`} type="number" step="0.01" value={formData.targetValue} onChange={(e) => setFormData({ ...formData, targetValue: parseFloat(e.target.value) || 0 })} required />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                <FormInput label="Start Date" type="date" value={formData.startDate || ''} onChange={(e) => setFormData({ ...formData, startDate: e.target.value })} required />
+                <FormInput label="End Date" type="date" value={formData.endDate || ''} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} required />
+            </div>
+            <FormSelect
+                label="Target Distribution Across Months"
+                value={formData.targetDistribution || 'equal'}
+                onChange={(e) => setFormData({ ...formData, targetDistribution: e.target.value as TargetDistribution })}
+                options={[
+                    { value: 'equal', label: 'Equal — same target every active month' },
+                    { value: 'linear', label: 'Linear ramp-up — increases each month' },
+                    { value: 'front-loaded', label: 'Front-loaded — higher target in early months' },
+                    { value: 'back-loaded', label: 'Back-loaded — higher target in later months' },
+                ]}
+            />
+            {/* Monthly preview */}
+            <div className="rounded-lg border border-slate-700 overflow-hidden">
+                <div className="px-3 py-2 bg-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wide">Monthly Target Preview</div>
+                <div className="grid grid-cols-6 gap-px bg-slate-700">
+                    {previewMonthly.map(({ month, target }) => (
+                        <div key={month} className="flex flex-col items-center px-1 py-2 bg-slate-900 text-center">
+                            <span className="text-[10px] text-slate-500 mb-0.5">{month}</span>
+                            <span className={`text-xs font-semibold ${target > 0 ? 'text-blue-300' : 'text-slate-600'}`}>{target > 0 ? target : '—'}</span>
+                        </div>
+                    ))}
+                </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <FormSelect
@@ -804,14 +946,14 @@ export default function ManagePage() {
     };
 
     // CRUD handlers for KPI
-    const handleCreateKPI = async (kpi: KPI) => {
+    const handleCreateKPI = async (kpi: KPI & { monthlyData?: { month: string; target: number; actual: null; variance: null }[] }) => {
         if (!data) return;
         setIsSaving(true);
         try {
             await fetch('/api/kpis', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ xmatrixId: data.id, ...kpi, monthlyData: [] }),
+                body: JSON.stringify({ xmatrixId: data.id, ...kpi }),
             });
             await fetchData();
             setModalType(null);

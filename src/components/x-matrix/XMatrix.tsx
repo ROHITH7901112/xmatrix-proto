@@ -1,38 +1,22 @@
 'use client';
 
 import { useXMatrixStore } from '@/lib/store';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { getHealthColor, getRelationshipColor, getRelationshipDotSize, cn } from '@/lib/utils';
-import { KPI, Owner, Relationship } from '@/lib/types';
+import { KPI, Owner, Relationship, EntityType } from '@/lib/types';
 import { useCallback, useMemo, useEffect } from 'react';
 import { useXMatrixCRUD } from '@/hooks/useXMatrixCRUD';
 import { Modal, LTOForm, AOForm, InitiativeForm, KPIForm, OwnerForm } from '@/components/shared/EntityModals';
+import {
+  CELL, DIAMOND, PAD, OWNER_GAP, OWNER_HEADER_H, MIN_CELLS,
+  GRID_STROKE, GRID_STROKE_LIGHT, BG_DARK, BG_CARD, BG_OWNER,
+  computeDimensions,
+  type MatrixDimensions,
+} from './layout';
 
 // ============================================================================
-// X-MATRIX UNIFIED GRID LAYOUT - Hoshin Kanri Standard
-// All sections share the same cell size for perfect alignment
+// X-MATRIX — Complete rewrite using deterministic shared layout
 // ============================================================================
-const GRID = {
-  // Uniform cell size for ALL grid cells (reduced for better fit at 100% zoom)
-  cellSize: 32,
-
-  // Center diamond size (fixed, never changes)
-  diamondSize: 180,
-
-  // Padding around entire matrix (reduced for compact layout)
-  padding: 50,
-
-  // Gap between KPI section and Owner section
-  ownerGap: 15,
-
-  // Owner section header height
-  ownerHeaderHeight: 24,
-
-  // Grid line styling
-  gridLineColor: 'rgba(0, 0, 0, 0.15)',
-  gridLineWidth: 1,
-};
-
 export function XMatrix() {
   const {
     viewState,
@@ -45,103 +29,39 @@ export function XMatrix() {
     getActiveData,
   } = useXMatrixStore();
 
-  // Get active data (view or draft based on mode)
   const data = getActiveData();
   const isEditMode = editModeState.mode === 'edit';
 
-  // Fetch data on mount
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const {
-    modalType,
-    editingItem,
-    isSaving,
-    openAddModal,
-    openEditModal,
-    closeModal,
-    handleCreateLTO,
-    handleUpdateLTO,
-    handleDeleteLTO,
-    handleCreateAO,
-    handleUpdateAO,
-    handleDeleteAO,
-    handleCreateInitiative,
-    handleUpdateInitiative,
-    handleDeleteInitiative,
-    handleCreateKPI,
-    handleUpdateKPI,
-    handleDeleteKPI,
-    handleCreateOwner,
-    handleUpdateOwner,
-    handleDeleteOwner,
+    modalType, editingItem, isSaving,
+    openAddModal, openEditModal, closeModal,
+    handleCreateLTO, handleUpdateLTO, handleDeleteLTO,
+    handleCreateAO, handleUpdateAO, handleDeleteAO,
+    handleCreateInitiative, handleUpdateInitiative, handleDeleteInitiative,
+    handleCreateKPI, handleUpdateKPI, handleDeleteKPI,
+    handleCreateOwner, handleUpdateOwner, handleDeleteOwner,
   } = useXMatrixCRUD();
 
   const { rotation } = viewState;
   const highlightedElements = getHighlightedElements();
   const hasHighlight = highlightedElements.size > 0;
 
-  /* Reversed arrays for correct visual alignment in Grids */
+  // ── Dimensions derived from data counts ──────────────────────────────
+  const dim = useMemo(() => computeDimensions(
+    data.initiatives.length,
+    data.annualObjectives.length,
+    data.kpis.length,
+    data.longTermObjectives.length,
+    data.owners.length,
+  ), [data.initiatives.length, data.annualObjectives.length, data.kpis.length, data.longTermObjectives.length, data.owners.length]);
+
+  // ── Reversed arrays for grid alignment (nearest-center first) ────────
   const reversedInitiatives = useMemo(() => [...data.initiatives].reverse(), [data.initiatives]);
-  const reversedAnnualObjectives = useMemo(() => [...data.annualObjectives].reverse(), [data.annualObjectives]);
+  const reversedAOs = useMemo(() => [...data.annualObjectives].reverse(), [data.annualObjectives]);
 
-  // Calculate grid dimensions based on data counts
-  const gridDimensions = useMemo(() => {
-    const initCount = data.initiatives.length;
-    const aoCount = data.annualObjectives.length;
-    const kpiCount = data.kpis.length;
-    const ltoCount = data.longTermObjectives.length;
-    const ownerCount = data.owners.length;
-
-    // Band sizes based on actual content (uniform cell size)
-    const topBandHeight = initCount * GRID.cellSize;
-    const bottomBandHeight = ltoCount * GRID.cellSize;
-    const leftBandWidth = aoCount * GRID.cellSize;
-    const rightBandWidth = kpiCount * GRID.cellSize;
-    // Owners appear on FAR RIGHT, aligned with initiative rows
-    const ownerBandWidth = ownerCount * GRID.cellSize;
-
-    // Center offset
-    const centerOffset = GRID.diamondSize / 2;
-
-    // Total dimensions - owners are on the far right
-    const totalWidth = GRID.padding + leftBandWidth + GRID.diamondSize + rightBandWidth + GRID.ownerGap + ownerBandWidth + GRID.padding;
-    const totalHeight = GRID.padding + topBandHeight + GRID.diamondSize + bottomBandHeight + GRID.padding;
-
-    // Center point of the matrix
-    const centerX = GRID.padding + leftBandWidth + centerOffset;
-    const centerY = GRID.padding + topBandHeight + centerOffset;
-
-    return {
-      initCount,
-      aoCount,
-      kpiCount,
-      ltoCount,
-      ownerCount,
-      topBandHeight,
-      bottomBandHeight,
-      leftBandWidth,
-      rightBandWidth,
-      ownerBandWidth,
-      centerX,
-      centerY,
-      centerOffset,
-      totalWidth,
-      totalHeight,
-    };
-  }, [data]);
-
-  const { centerX, centerY, centerOffset } = gridDimensions;
-
-  // Find relationship between two elements
-  const findRelationship = useCallback((sourceId: string, targetId: string): Relationship | undefined => {
-    return data.relationships.find(
-      (r) => (r.sourceId === sourceId && r.targetId === targetId) ||
-        (r.sourceId === targetId && r.targetId === sourceId)
-    );
-  }, [data.relationships]);
-
+  // ── Highlight helpers ────────────────────────────────────────────────
   const isHighlighted = useCallback((id: string) => {
     if (!hasHighlight) return true;
     return highlightedElements.has(id);
@@ -152,659 +72,349 @@ export function XMatrix() {
     return highlightedElements.has(id) ? 1 : 0.15;
   }, [hasHighlight, highlightedElements]);
 
-  // ViewBox calculation
-  const viewBoxWidth = gridDimensions.totalWidth;
-  const viewBoxHeight = gridDimensions.totalHeight;
+  const findRelationship = useCallback((a: string, b: string): Relationship | undefined => {
+    return data.relationships.find(
+      (r) => (r.sourceId === a && r.targetId === b) || (r.sourceId === b && r.targetId === a)
+    );
+  }, [data.relationships]);
 
   return (
     <div className="w-full h-full flex items-center justify-center p-2 overflow-auto">
       <motion.svg
-        viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
+        viewBox={`0 0 ${dim.totalW} ${dim.totalH}`}
         className="max-w-full max-h-full"
-        style={{ width: '100%', height: '100%', maxWidth: `${viewBoxWidth}px`, maxHeight: `${viewBoxHeight}px` }}
+        style={{ width: '100%', height: '100%', maxWidth: `${dim.totalW}px`, maxHeight: `${dim.totalH}px` }}
         initial={{ rotate: 0 }}
         animate={{ rotate: rotation }}
         transition={{ duration: 0.5, ease: 'easeInOut' }}
         preserveAspectRatio="xMidYMid meet"
       >
-        <defs>
-          <filter id="subtleGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="2" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+        {/* Background */}
+        <rect width="100%" height="100%" fill={BG_DARK} />
 
-        {/* White Background */}
-        <rect width="100%" height="100%" fill="rgb(15, 23, 42)" />
-
-        {/* ================================================================== */}
-        {/* BACKGROUNDS */}
-        {/* ================================================================== */}
-
-        {/* Owner section background - Rendered early to be behind the grid */}
+        {/* ============================================================= */}
+        {/* OWNER SECTION BACKGROUND                                       */}
+        {/* ============================================================= */}
         <rect
-          x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap}
-          y={centerY - centerOffset - gridDimensions.topBandHeight - GRID.ownerHeaderHeight}
-          width={gridDimensions.ownerBandWidth}
-          height={gridDimensions.topBandHeight + GRID.ownerHeaderHeight + GRID.diamondSize + gridDimensions.bottomBandHeight}
-          fill="rgb(30, 41, 59)"
-          stroke="rgb(51, 65, 85)"
-          strokeWidth="1"
+          x={dim.ownerGridX}
+          y={dim.ownerGridY - OWNER_HEADER_H}
+          width={dim.ownerW}
+          height={dim.topH + OWNER_HEADER_H + DIAMOND + dim.bottomH}
+          fill={BG_OWNER}
+          stroke={GRID_STROKE}
+          strokeWidth={1}
         />
 
-        {/* ================================================================== */}
-        {/* RELATIONSHIP GRIDS - Four corner quadrants */}
-        {/* ================================================================== */}
+        {/* ============================================================= */}
+        {/* RELATIONSHIP GRIDS — four corner quadrants + owner grid        */}
+        {/* ============================================================= */}
 
-        {/* Top-Left: Initiatives (rows) × AO (columns) */}
-        <RelationshipGrid
-          rows={reversedInitiatives}
-          cols={reversedAnnualObjectives}
-          rowType="initiative"
-          colType="ao"
-          startX={centerX - centerOffset - gridDimensions.leftBandWidth}
-          startY={centerY - centerOffset - gridDimensions.topBandHeight}
-          gridWidth={gridDimensions.leftBandWidth}
-          gridHeight={gridDimensions.topBandHeight}
-          findRelationship={findRelationship}
-          onCellClick={toggleRelationship}
-          isHighlighted={isHighlighted}
-          isEditMode={isEditMode}
+        {/* Top-Left: Init(rows) x AO(cols) */}
+        <RelGrid
+          rows={reversedInitiatives} cols={reversedAOs}
+          rowType="initiative" colType="ao"
+          ox={dim.topLeftX} oy={dim.topLeftY}
+          bandW={dim.leftW} bandH={dim.topH}
+          actualRows={dim.initCount} actualCols={dim.aoCount}
+          colOffset={dim.displayAo - dim.aoCount}
+          rowOffset={dim.displayInit - dim.initCount}
+          findRel={findRelationship} onCellClick={toggleRelationship}
+          isHighlighted={isHighlighted} isEditMode={isEditMode}
+        />
+        {/* Top-Right: Init(rows) x KPI(cols) */}
+        <RelGrid
+          rows={reversedInitiatives} cols={data.kpis}
+          rowType="initiative" colType="kpi"
+          ox={dim.topRightX} oy={dim.topRightY}
+          bandW={dim.rightW} bandH={dim.topH}
+          actualRows={dim.initCount} actualCols={dim.kpiCount}
+          rowOffset={dim.displayInit - dim.initCount}
+          findRel={findRelationship} onCellClick={toggleRelationship}
+          isHighlighted={isHighlighted} isEditMode={isEditMode}
+        />
+        {/* Owner grid: Init(rows) x Owner(cols) */}
+        <RelGrid
+          rows={reversedInitiatives} cols={data.owners}
+          rowType="initiative" colType="owner"
+          ox={dim.ownerGridX} oy={dim.ownerGridY}
+          bandW={dim.ownerW} bandH={dim.topH}
+          actualRows={dim.initCount} actualCols={dim.ownerCount}
+          rowOffset={dim.displayInit - dim.initCount}
+          findRel={findRelationship} onCellClick={toggleRelationship}
+          isHighlighted={isHighlighted} isEditMode={isEditMode}
+        />
+        {/* Bottom-Left: LTO(rows) x AO(cols) */}
+        <RelGrid
+          rows={data.longTermObjectives} cols={reversedAOs}
+          rowType="lto" colType="ao"
+          ox={dim.bottomLeftX} oy={dim.bottomLeftY}
+          bandW={dim.leftW} bandH={dim.bottomH}
+          actualRows={dim.ltoCount} actualCols={dim.aoCount}
+          colOffset={dim.displayAo - dim.aoCount}
+          findRel={findRelationship} onCellClick={toggleRelationship}
+          isHighlighted={isHighlighted} isEditMode={isEditMode}
         />
 
-        {/* Top-Right: Initiatives (rows) × KPIs (columns) */}
-        <RelationshipGrid
-          rows={reversedInitiatives}
-          cols={data.kpis}
-          rowType="initiative"
-          colType="kpi"
-          startX={centerX + centerOffset}
-          startY={centerY - centerOffset - gridDimensions.topBandHeight}
-          gridWidth={gridDimensions.rightBandWidth}
-          gridHeight={gridDimensions.topBandHeight}
-          findRelationship={findRelationship}
-          onCellClick={toggleRelationship}
-          isHighlighted={isHighlighted}
-          isEditMode={isEditMode}
-        />
+        {/* ============================================================= */}
+        {/* CENTER DIAMOND                                                 */}
+        {/* ============================================================= */}
+        <CenterSquare cx={dim.centerX} cy={dim.centerY} size={DIAMOND} rotation={rotation} />
 
-        {/* Far Right: Initiatives (rows) × Owners (columns) - WHO section */}
-        <RelationshipGrid
-          rows={reversedInitiatives}
-          cols={data.owners}
-          rowType="initiative"
-          colType="owner"
-          startX={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap}
-          startY={centerY - centerOffset - gridDimensions.topBandHeight}
-          gridWidth={gridDimensions.ownerBandWidth}
-          gridHeight={gridDimensions.topBandHeight}
-          findRelationship={findRelationship}
-          onCellClick={toggleRelationship}
-          isHighlighted={isHighlighted}
-          isEditMode={isEditMode}
-        />
+        {/* ============================================================= */}
+        {/* ENTITY CARDS                                                   */}
+        {/* ============================================================= */}
 
-        {/* Bottom-Left: LTO (rows) × AO (columns) */}
-        <RelationshipGrid
-          rows={data.longTermObjectives}
-          cols={reversedAnnualObjectives}
-          rowType="lto"
-          colType="ao"
-          startX={centerX - centerOffset - gridDimensions.leftBandWidth}
-          startY={centerY + centerOffset}
-          gridWidth={gridDimensions.leftBandWidth}
-          gridHeight={gridDimensions.bottomBandHeight}
-          findRelationship={findRelationship}
-          onCellClick={toggleRelationship}
-          isHighlighted={isHighlighted}
-          isEditMode={isEditMode}
-        />
+        {/* INITIATIVES — horizontal cards in the top band */}
+        {[...data.initiatives].reverse().map((init, idx) => {
+          const row = (dim.displayInit - dim.initCount) + idx;
+          const cy = dim.topLeftY + row * CELL + CELL / 2;
+          return (
+            <HorizCard
+              key={init.id}
+              title={init.title}
+              health={init.health}
+              cy={cy}
+              dim={dim}
+              rotation={rotation}
+              opacity={getOpacity(init.id)}
+              highlighted={isHighlighted(init.id)}
+              onHover={(h) => setHoveredElement(h ? { id: init.id, type: 'initiative' } : null)}
+              onClick={() => setSelectedElement({ id: init.id, type: 'initiative' })}
+              onDoubleClick={isEditMode ? () => openEditModal('initiative', init) : undefined}
+              isEditMode={isEditMode}
+            />
+          );
+        })}
 
-        {/* Bottom-Right: LTO (rows) × KPIs (columns) - REMOVED */}
+        {/* ANNUAL OBJECTIVES — vertical cards in the left band */}
+        {data.annualObjectives.map((ao, idx) => {
+          const col = dim.displayAo - 1 - idx;
+          const cx = dim.topLeftX + col * CELL + CELL / 2;
+          return (
+            <VertCard
+              key={ao.id}
+              title={ao.title}
+              health={ao.health}
+              cx={cx}
+              dim={dim}
+              rotation={rotation}
+              opacity={getOpacity(ao.id)}
+              highlighted={isHighlighted(ao.id)}
+              onHover={(h) => setHoveredElement(h ? { id: ao.id, type: 'ao' } : null)}
+              onClick={() => setSelectedElement({ id: ao.id, type: 'ao' })}
+              onDoubleClick={isEditMode ? () => openEditModal('ao', ao) : undefined}
+              isEditMode={isEditMode}
+            />
+          );
+        })}
 
-        {/* ================================================================== */}
-        {/* CENTER SQUARE - Fixed anchor with four sections */}
-        {/* ================================================================== */}
-        <CenterSquare
-          cx={centerX}
-          cy={centerY}
-          size={GRID.diamondSize}
+        {/* KPIs — vertical cards in the right band */}
+        {data.kpis.map((kpi, idx) => {
+          const cx = dim.topRightX + idx * CELL + CELL / 2;
+          return (
+            <VertCard
+              key={kpi.id}
+              title={kpi.title}
+              health={kpi.health}
+              cx={cx}
+              dim={dim}
+              rotation={rotation}
+              opacity={getOpacity(kpi.id)}
+              highlighted={isHighlighted(kpi.id)}
+              onHover={(h) => setHoveredElement(h ? { id: kpi.id, type: 'kpi' } : null)}
+              onClick={() => setSelectedElement({ id: kpi.id, type: 'kpi' })}
+              onDoubleClick={isEditMode ? () => openEditModal('kpi', kpi) : undefined}
+              isEditMode={isEditMode}
+            />
+          );
+        })}
+
+        {/* LONG-TERM OBJECTIVES — horizontal cards in the bottom band */}
+        {data.longTermObjectives.map((lto, idx) => {
+          const cy = dim.bottomLeftY + idx * CELL + CELL / 2;
+          return (
+            <HorizCard
+              key={lto.id}
+              title={lto.title}
+              health={lto.health}
+              cy={cy}
+              dim={dim}
+              rotation={rotation}
+              opacity={getOpacity(lto.id)}
+              highlighted={isHighlighted(lto.id)}
+              onHover={(h) => setHoveredElement(h ? { id: lto.id, type: 'lto' } : null)}
+              onClick={() => setSelectedElement({ id: lto.id, type: 'lto' })}
+              onDoubleClick={isEditMode ? () => openEditModal('lto', lto) : undefined}
+              isEditMode={isEditMode}
+            />
+          );
+        })}
+
+        {/* OWNERS — header + column labels */}
+        <OwnerSection
+          owners={data.owners}
+          dim={dim}
           rotation={rotation}
+          isHighlighted={isHighlighted}
+          getOpacity={getOpacity}
+          setHoveredElement={setHoveredElement}
+          setSelectedElement={setSelectedElement}
+          openEditModal={openEditModal}
+          isEditMode={isEditMode}
         />
 
-        {/* ================================================================== */}
-        {/* INITIATIVES (Top) - Horizontal rows spanning full width */}
-        {/* Cells span from left AO grid to right KPI grid (like Image 2) */}
-        {/* ================================================================== */}
-        <g className="initiatives-section">
-          {data.initiatives.map((init, index) => {
-            // Items expand AWAY from center: last item nearest center, first item furthest up
-            // Reversed index: newest items at the edge (furthest from center)
-            const reversedIndex = data.initiatives.length - 1 - index;
-            const cellY = centerY - centerOffset - gridDimensions.topBandHeight + (reversedIndex + 0.5) * GRID.cellSize;
-            // Cell spans full width: from left of AO grid to right of KPI grid
-            const fullWidth = gridDimensions.leftBandWidth + GRID.diamondSize + gridDimensions.rightBandWidth;
-            const cellX = centerX - centerOffset - gridDimensions.leftBandWidth + fullWidth / 2;
+        {/* ============================================================= */}
+        {/* EMPTY STATE PLACEHOLDERS                                       */}
+        {/* ============================================================= */}
+        <EmptyStatePlaceholders dim={dim} data={data} rotation={rotation} />
 
-            return (
-              <InitiativeCell
-                key={init.id}
-                title={init.title}
-                health={init.health}
-                x={cellX}
-                y={cellY}
-                width={fullWidth}
-                height={GRID.cellSize}
-                rotation={rotation}
-                center={{ x: centerX, y: centerY }}
-                opacity={getOpacity(init.id)}
-                isHighlighted={isHighlighted(init.id)}
-                onHover={(hover) => setHoveredElement(hover ? { id: init.id, type: 'initiative' } : null)}
-                onClick={() => setSelectedElement({ id: init.id, type: 'initiative' })}
-                onDoubleClick={isEditMode ? () => openEditModal('initiative', init) : undefined}
-                isEditMode={isEditMode}
-              />
-            );
-          })}
-        </g>
-
-        {/* ================================================================== */}
-        {/* ANNUAL OBJECTIVES (Left) - Vertical columns spanning full height */}
-        {/* Cells span from top initiative grid to bottom LTO grid (like Image 2) */}
-        {/* ================================================================== */}
-        <g className="annual-objectives-section">
-          {data.annualObjectives.map((ao, index) => {
-            // Items expand AWAY from center: last item nearest center, first item furthest left
-            // Reversed index: newest items at the edge (furthest from center)
-            const reversedIndex = data.annualObjectives.length - 1 - index;
-            const cellX = centerX - centerOffset - gridDimensions.leftBandWidth + (reversedIndex + 0.5) * GRID.cellSize;
-            // Cell spans full height: from top of initiative grid to bottom of LTO grid
-            const fullHeight = gridDimensions.topBandHeight + GRID.diamondSize + gridDimensions.bottomBandHeight;
-            const cellY = centerY - centerOffset - gridDimensions.topBandHeight + fullHeight / 2;
-
-            return (
-              <VerticalCell
-                key={ao.id}
-                title={ao.title}
-                health={ao.health}
-                x={cellX}
-                y={cellY}
-                width={GRID.cellSize}
-                height={fullHeight}
-                rotation={rotation}
-                center={{ x: centerX, y: centerY }}
-                opacity={getOpacity(ao.id)}
-                isHighlighted={isHighlighted(ao.id)}
-                onHover={(hover) => setHoveredElement(hover ? { id: ao.id, type: 'ao' } : null)}
-                onClick={() => setSelectedElement({ id: ao.id, type: 'ao' })}
-                onDoubleClick={isEditMode ? () => openEditModal('ao', ao) : undefined}
-                isEditMode={isEditMode}
-              />
-            );
-          })}
-        </g>
-
-        {/* ================================================================== */}
-        {/* KPIs / METRICS (Right) - Vertical columns spanning full height */}
-        {/* Cells span from top initiative grid to bottom LTO grid (like Image 2) */}
-        {/* ================================================================== */}
-        <g className="kpis-section">
-          {data.kpis.map((kpi, index) => {
-            // Items expand AWAY from center: first item nearest center, last item furthest right
-            const cellX = centerX + centerOffset + (index + 0.5) * GRID.cellSize;
-            // Cell spans full height: from top of initiative grid to bottom of LTO grid
-            const fullHeight = gridDimensions.topBandHeight + GRID.diamondSize + gridDimensions.bottomBandHeight;
-            const cellY = centerY - centerOffset - gridDimensions.topBandHeight + fullHeight / 2;
-
-            return (
-              <KPICell
-                key={kpi.id}
-                kpi={kpi}
-                x={cellX}
-                y={cellY}
-                width={GRID.cellSize}
-                height={fullHeight}
-                rotation={rotation}
-                center={{ x: centerX, y: centerY }}
-                opacity={getOpacity(kpi.id)}
-                isHighlighted={isHighlighted(kpi.id)}
-                onHover={(hover) => setHoveredElement(hover ? { id: kpi.id, type: 'kpi' } : null)}
-                onClick={() => setSelectedElement({ id: kpi.id, type: 'kpi' })}
-                onDoubleClick={isEditMode ? () => openEditModal('kpi', kpi) : undefined}
-                isEditMode={isEditMode}
-              />
-            );
-          })}
-        </g>
-
-        {/* ================================================================== */}
-        {/* LONG-TERM OBJECTIVES (Bottom) - Horizontal rows spanning full width */}
-        {/* Cells span from left AO grid to right KPI grid (like Image 2) */}
-        {/* ================================================================== */}
-        <g className="long-term-objectives-section">
-          {data.longTermObjectives.map((lto, index) => {
-            // Items expand AWAY from center: first item nearest center, last item furthest down
-            const cellY = centerY + centerOffset + (index + 0.5) * GRID.cellSize;
-            // Cell spans full width: from left of AO grid to right of KPI grid
-            const fullWidth = gridDimensions.leftBandWidth + GRID.diamondSize + gridDimensions.rightBandWidth;
-            const cellX = centerX - centerOffset - gridDimensions.leftBandWidth + fullWidth / 2;
-
-            return (
-              <HorizontalCell
-                key={lto.id}
-                title={lto.title}
-                health={lto.health}
-                x={cellX}
-                y={cellY}
-                width={fullWidth}
-                height={GRID.cellSize}
-                rotation={rotation}
-                center={{ x: centerX, y: centerY }}
-                opacity={getOpacity(lto.id)}
-                isHighlighted={isHighlighted(lto.id)}
-                onHover={(hover) => setHoveredElement(hover ? { id: lto.id, type: 'lto' } : null)}
-                onClick={() => setSelectedElement({ id: lto.id, type: 'lto' })}
-                onDoubleClick={isEditMode ? () => openEditModal('lto', lto) : undefined}
-                isEditMode={isEditMode}
-              />
-            );
-          })}
-        </g>
-
-        {/* ================================================================== */}
-        {/* OWNERS (Far Right) - WHO section with header and background */}
-        {/* Like reference image: light background column with "Owners" header */}
-        {/* ================================================================== */}
-        <g className="owners-section">
-          {/* Owner section background moved to top of SVG for correct layering */}
-
-          {/* "Owners" header label */}
-          <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
-            <rect
-              x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap}
-              y={centerY - centerOffset - gridDimensions.topBandHeight - GRID.ownerHeaderHeight}
-              width={gridDimensions.ownerBandWidth}
-              height={GRID.ownerHeaderHeight}
-              fill="rgb(51, 65, 85)"
-            />
-            <text
-              x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + gridDimensions.ownerBandWidth / 2}
-              y={centerY - centerOffset - gridDimensions.topBandHeight - GRID.ownerHeaderHeight / 2 + 4}
-              textAnchor="middle"
-              fill="rgb(148, 163, 184)"
-              fontSize="10"
-              fontWeight="600"
-            >
-              Owners
-            </text>
-          </g>
-
-          {/* Owner column headers with vertical text */}
-          {data.owners.map((owner, index) => {
-            const cellX = centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + (index + 0.5) * GRID.cellSize;
-            // Position below the "Owners" header, spanning the full height
-            const cellY = centerY;
-
-            return (
-              <OwnerHeaderCell
-                key={owner.id}
-                owner={owner}
-                x={cellX}
-                y={cellY}
-                rotation={rotation}
-                center={{ x: centerX, y: centerY }}
-                opacity={getOpacity(owner.id)}
-                isHighlighted={isHighlighted(owner.id)}
-                onHover={(hover) => setHoveredElement(hover ? { id: owner.id, type: 'owner' } : null)}
-                onClick={() => setSelectedElement({ id: owner.id, type: 'owner' })}
-                onDoubleClick={isEditMode ? () => openEditModal('owner', owner) : undefined}
-                isEditMode={isEditMode}
-              />
-            );
-          })}
-
-          {/* Grid lines for owner columns */}
-          {Array.from({ length: gridDimensions.ownerCount + 1 }).map((_, i) => (
-            <line
-              key={`owner-col-${i}`}
-              x1={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + i * GRID.cellSize}
-              y1={centerY - centerOffset - gridDimensions.topBandHeight}
-              x2={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + i * GRID.cellSize}
-              y2={centerY + centerOffset + gridDimensions.bottomBandHeight}
-              stroke="rgb(71, 85, 105)"
-              strokeWidth="1"
-            />
-          ))}
-
-          {/* Grid lines for owner rows (aligned with initiatives + LTOs) */}
-          {Array.from({ length: gridDimensions.initCount + 1 }).map((_, i) => (
-            <line
-              key={`owner-init-row-${i}`}
-              x1={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap}
-              y1={centerY - centerOffset - gridDimensions.topBandHeight + i * GRID.cellSize}
-              x2={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + gridDimensions.ownerBandWidth}
-              y2={centerY - centerOffset - gridDimensions.topBandHeight + i * GRID.cellSize}
-              stroke="rgb(71, 85, 105)"
-              strokeWidth="1"
-            />
-          ))}
-        </g>
-
-        {/* ================================================================== */}
-        {/* ADD BUTTONS - Only visible in Edit Mode */}
-        {/* ================================================================== */}
+        {/* ============================================================= */}
+        {/* ADD BUTTONS — only in edit mode                                */}
+        {/* ============================================================= */}
         {isEditMode && (
-          <>
-            <AddButton
-              x={centerX}
-              y={centerY - centerOffset - gridDimensions.topBandHeight - 25}
-              label="+ Initiative"
-              onClick={() => openAddModal('initiative')}
-              rotation={rotation}
-              center={{ x: centerX, y: centerY }}
-            />
-            <AddButton
-              x={centerX - centerOffset - gridDimensions.leftBandWidth - 25}
-              y={centerY}
-              label="+ AO"
-              onClick={() => openAddModal('ao')}
-              rotation={rotation}
-              center={{ x: centerX, y: centerY }}
-              vertical
-            />
-            <AddButton
-              x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap / 2}
-              y={centerY}
-              label="+ KPI"
-              onClick={() => openAddModal('kpi')}
-              rotation={rotation}
-              center={{ x: centerX, y: centerY }}
-              vertical
-            />
-            <AddButton
-              x={centerX + centerOffset + gridDimensions.rightBandWidth + GRID.ownerGap + gridDimensions.ownerBandWidth + 25}
-              y={centerY}
-              label="+ Owner"
-              onClick={() => openAddModal('owner')}
-              rotation={rotation}
-              center={{ x: centerX, y: centerY }}
-              vertical
-            />
-            <AddButton
-              x={centerX}
-              y={centerY + centerOffset + gridDimensions.bottomBandHeight + 25}
-              label="+ LTO"
-              onClick={() => openAddModal('lto')}
-              rotation={rotation}
-              center={{ x: centerX, y: centerY }}
-            />
-          </>
+          <AddButtons dim={dim} rotation={rotation} openAddModal={openAddModal} />
         )}
       </motion.svg>
 
-      {/* Edit Modals */}
-      <Modal
-        isOpen={modalType === 'lto'}
-        onClose={closeModal}
-        title={editingItem ? 'Edit Long-Term Objective' : 'New Long-Term Objective'}
-      >
-        <LTOForm
-          initialData={editingItem as any}
-          existingItems={data.longTermObjectives}
-          onSubmit={editingItem ? handleUpdateLTO : handleCreateLTO}
-          onDelete={editingItem ? () => handleDeleteLTO(editingItem.id) : undefined}
-          onCancel={closeModal}
-          isLoading={isSaving}
-        />
+      {/* ── Edit Modals ─────────────────────────────────────────────── */}
+      <Modal isOpen={modalType === 'lto'} onClose={closeModal} title={editingItem ? 'Edit Long-Term Objective' : 'New Long-Term Objective'}>
+        <LTOForm initialData={editingItem as any} existingItems={data.longTermObjectives} onSubmit={editingItem ? handleUpdateLTO : handleCreateLTO} onDelete={editingItem ? () => handleDeleteLTO(editingItem.id) : undefined} onCancel={closeModal} isLoading={isSaving} />
       </Modal>
-
-      <Modal
-        isOpen={modalType === 'ao'}
-        onClose={closeModal}
-        title={editingItem ? 'Edit Annual Objective' : 'New Annual Objective'}
-      >
-        <AOForm
-          initialData={editingItem as any}
-          existingItems={data.annualObjectives}
-          onSubmit={editingItem ? handleUpdateAO : handleCreateAO}
-          onDelete={editingItem ? () => handleDeleteAO(editingItem.id) : undefined}
-          onCancel={closeModal}
-          isLoading={isSaving}
-        />
+      <Modal isOpen={modalType === 'ao'} onClose={closeModal} title={editingItem ? 'Edit Annual Objective' : 'New Annual Objective'}>
+        <AOForm initialData={editingItem as any} existingItems={data.annualObjectives} onSubmit={editingItem ? handleUpdateAO : handleCreateAO} onDelete={editingItem ? () => handleDeleteAO(editingItem.id) : undefined} onCancel={closeModal} isLoading={isSaving} />
       </Modal>
-
-      <Modal
-        isOpen={modalType === 'initiative'}
-        onClose={closeModal}
-        title={editingItem ? 'Edit Initiative' : 'New Initiative'}
-      >
-        <InitiativeForm
-          initialData={editingItem as any}
-          existingItems={data.initiatives}
-          onSubmit={editingItem ? handleUpdateInitiative : handleCreateInitiative}
-          onDelete={editingItem ? () => handleDeleteInitiative(editingItem.id) : undefined}
-          onCancel={closeModal}
-          isLoading={isSaving}
-        />
+      <Modal isOpen={modalType === 'initiative'} onClose={closeModal} title={editingItem ? 'Edit Initiative' : 'New Initiative'}>
+        <InitiativeForm initialData={editingItem as any} existingItems={data.initiatives} onSubmit={editingItem ? handleUpdateInitiative : handleCreateInitiative} onDelete={editingItem ? () => handleDeleteInitiative(editingItem.id) : undefined} onCancel={closeModal} isLoading={isSaving} />
       </Modal>
-
-      <Modal
-        isOpen={modalType === 'kpi'}
-        onClose={closeModal}
-        title={editingItem ? 'Edit KPI' : 'New KPI'}
-      >
-        <KPIForm
-          initialData={editingItem as any}
-          existingItems={data.kpis}
-          onSubmit={editingItem ? handleUpdateKPI : handleCreateKPI}
-          onDelete={editingItem ? () => handleDeleteKPI(editingItem.id) : undefined}
-          onCancel={closeModal}
-          isLoading={isSaving}
-        />
+      <Modal isOpen={modalType === 'kpi'} onClose={closeModal} title={editingItem ? 'Edit KPI' : 'New KPI'}>
+        <KPIForm initialData={editingItem as any} existingItems={data.kpis} availableOwners={data.owners} onSubmit={editingItem ? handleUpdateKPI : handleCreateKPI} onDelete={editingItem ? () => handleDeleteKPI(editingItem.id) : undefined} onCancel={closeModal} isLoading={isSaving} />
       </Modal>
-
-      <Modal
-        isOpen={modalType === 'owner'}
-        onClose={closeModal}
-        title={editingItem ? 'Edit Owner' : 'New Owner'}
-      >
-        <OwnerForm
-          initialData={editingItem as any}
-          onSubmit={editingItem ? handleUpdateOwner : handleCreateOwner}
-          onDelete={editingItem ? () => handleDeleteOwner(editingItem.id) : undefined}
-          onCancel={closeModal}
-          isLoading={isSaving}
-        />
+      <Modal isOpen={modalType === 'owner'} onClose={closeModal} title={editingItem ? 'Edit Owner' : 'New Owner'}>
+        <OwnerForm initialData={editingItem as any} onSubmit={editingItem ? handleUpdateOwner : handleCreateOwner} onDelete={editingItem ? () => handleDeleteOwner(editingItem.id) : undefined} onCancel={closeModal} isLoading={isSaving} />
       </Modal>
     </div>
   );
 }
 
 // ============================================================================
-// CENTER SQUARE COMPONENT (Hoshin Kanri Standard)
+// CENTER SQUARE
 // ============================================================================
-interface CenterSquareProps {
-  cx: number;
-  cy: number;
-  size: number;
-  rotation: number;
-}
-
-function CenterSquare({ cx, cy, size, rotation }: CenterSquareProps) {
-  const half = size / 2;
-
+function CenterSquare({ cx, cy, size, rotation }: { cx: number; cy: number; size: number; rotation: number }) {
+  const h = size / 2;
   return (
-    <g className="center-square">
-      {/* Square outline */}
-      <rect
-        x={cx - half}
-        y={cy - half}
-        width={size}
-        height={size}
-        fill="rgb(30, 41, 59)"
-        stroke="rgb(51, 65, 85)"
-        strokeWidth="2"
-      />
-
-      {/* X lines through center */}
-      <line x1={cx - half} y1={cy - half} x2={cx + half} y2={cy + half} stroke="rgb(51, 65, 85)" strokeWidth="1.5" />
-      <line x1={cx + half} y1={cy - half} x2={cx - half} y2={cy + half} stroke="rgb(51, 65, 85)" strokeWidth="1.5" />
-
-      {/* Section labels - counter-rotated to stay readable */}
+    <g>
+      <rect x={cx - h} y={cy - h} width={size} height={size} fill={BG_CARD} stroke={GRID_STROKE} strokeWidth={2} />
+      <line x1={cx - h} y1={cy - h} x2={cx + h} y2={cy + h} stroke={GRID_STROKE} strokeWidth={1.5} />
+      <line x1={cx + h} y1={cy - h} x2={cx - h} y2={cy + h} stroke={GRID_STROKE} strokeWidth={1.5} />
       <g transform={`rotate(${-rotation}, ${cx}, ${cy})`}>
-        {/* Top - Improvement Priorities */}
-        <text x={cx} y={cy - half / 2 - 10} textAnchor="middle" fill="rgb(59, 130, 246)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Top Level
-        </text>
-        <text x={cx} y={cy - half / 2 + 5} textAnchor="middle" fill="rgb(59, 130, 246)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Improvement
-        </text>
-        <text x={cx} y={cy - half / 2 + 20} textAnchor="middle" fill="rgb(59, 130, 246)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Priorities
-        </text>
-
-        {/* Left - Annual Objectives */}
-        <text x={cx - half / 2} y={cy - 5} textAnchor="middle" fill="rgb(34, 197, 94)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Annual
-        </text>
-        <text x={cx - half / 2} y={cy + 10} textAnchor="middle" fill="rgb(34, 197, 94)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Objectives
-        </text>
-
-        {/* Right - Metrics to Improve */}
-        <text x={cx + half / 2} y={cy - 5} textAnchor="middle" fill="rgb(249, 115, 22)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Metrics to
-        </text>
-        <text x={cx + half / 2} y={cy + 10} textAnchor="middle" fill="rgb(249, 115, 22)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Improve
-        </text>
-
-        {/* Bottom - Long-Term Objectives */}
-        <text x={cx} y={cy + half / 2 - 5} textAnchor="middle" fill="rgb(239, 68, 68)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Long-Term
-        </text>
-        <text x={cx} y={cy + half / 2 + 10} textAnchor="middle" fill="rgb(239, 68, 68)" fontSize="11" fontWeight="500" fontStyle="italic">
-          Objectives
-        </text>
+        <text x={cx} y={cy - h / 2 - 10} textAnchor="middle" fill="rgb(59,130,246)" fontSize="11" fontWeight="500" fontStyle="italic">Top Level</text>
+        <text x={cx} y={cy - h / 2 + 5} textAnchor="middle" fill="rgb(59,130,246)" fontSize="11" fontWeight="500" fontStyle="italic">Improvement</text>
+        <text x={cx} y={cy - h / 2 + 20} textAnchor="middle" fill="rgb(59,130,246)" fontSize="11" fontWeight="500" fontStyle="italic">Priorities</text>
+        <text x={cx - h / 2} y={cy - 5} textAnchor="middle" fill="rgb(34,197,94)" fontSize="11" fontWeight="500" fontStyle="italic">Annual</text>
+        <text x={cx - h / 2} y={cy + 10} textAnchor="middle" fill="rgb(34,197,94)" fontSize="11" fontWeight="500" fontStyle="italic">Objectives</text>
+        <text x={cx + h / 2} y={cy - 5} textAnchor="middle" fill="rgb(249,115,22)" fontSize="11" fontWeight="500" fontStyle="italic">Metrics to</text>
+        <text x={cx + h / 2} y={cy + 10} textAnchor="middle" fill="rgb(249,115,22)" fontSize="11" fontWeight="500" fontStyle="italic">Improve</text>
+        <text x={cx} y={cy + h / 2 - 5} textAnchor="middle" fill="rgb(239,68,68)" fontSize="11" fontWeight="500" fontStyle="italic">Long-Term</text>
+        <text x={cx} y={cy + h / 2 + 10} textAnchor="middle" fill="rgb(239,68,68)" fontSize="11" fontWeight="500" fontStyle="italic">Objectives</text>
       </g>
     </g>
   );
 }
 
 // ============================================================================
-// RELATIONSHIP GRID COMPONENT
+// RELATIONSHIP GRID — deterministic dot positioning
+// Grid origin (ox, oy) is always the top-left corner. Cells are placed at
+// ox + col * CELL, oy + row * CELL. No centering offset — cards use the
+// same math so dots land exactly at card/row intersections.
 // ============================================================================
-interface RelationshipGridProps {
+interface RelGridProps {
   rows: { id: string }[];
   cols: { id: string }[];
   rowType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
   colType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
-  startX: number;
-  startY: number;
-  gridWidth: number;
-  gridHeight: number;
-  findRelationship: (a: string, b: string) => Relationship | undefined;
-  onCellClick: (rowId: string, rowType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner', colId: string, colType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner') => void;
+  ox: number;
+  oy: number;
+  bandW: number;
+  bandH: number;
+  actualRows: number;
+  actualCols: number;
+  /** Columns of empty padding before actual data (for reversed bands like AO) */
+  colOffset?: number;
+  /** Rows of empty padding before actual data (for reversed bands like Initiative) */
+  rowOffset?: number;
+  findRel: (a: string, b: string) => Relationship | undefined;
+  onCellClick: (rId: string, rType: any, cId: string, cType: any) => void;
   isHighlighted: (id: string) => boolean;
   isEditMode: boolean;
 }
 
-function RelationshipGrid({
-  rows,
-  cols,
-  rowType,
-  colType,
-  startX,
-  startY,
-  gridWidth,
-  gridHeight,
-  findRelationship,
-  onCellClick,
-  isHighlighted,
-  isEditMode,
-}: RelationshipGridProps) {
-  const rowCount = rows.length;
-  const colCount = cols.length;
-  const cellWidth = colCount > 0 ? gridWidth / colCount : GRID.cellSize;
-  const cellHeight = rowCount > 0 ? gridHeight / rowCount : GRID.cellSize;
+function RelGrid({
+  rows, cols, rowType, colType,
+  ox, oy, bandW, bandH,
+  actualRows, actualCols,
+  colOffset = 0, rowOffset = 0,
+  findRel, onCellClick, isHighlighted, isEditMode,
+}: RelGridProps) {
+  const displayCols = Math.max(actualCols, MIN_CELLS);
+  const displayRows = Math.max(actualRows, MIN_CELLS);
 
   return (
-    <g className="relationship-grid">
-      {/* Grid background */}
-      <rect
-        x={startX}
-        y={startY}
-        width={gridWidth}
-        height={gridHeight}
-        fill="rgb(30, 41, 59)"
-        stroke="rgb(51, 65, 85)"
-        strokeWidth="1"
-      />
+    <g className="rel-grid">
+      {/* Background */}
+      <rect x={ox} y={oy} width={bandW} height={bandH} fill={BG_CARD} stroke={GRID_STROKE} strokeWidth={1} />
 
-      {/* Grid lines */}
-      <g stroke={GRID.gridLineColor} strokeWidth={GRID.gridLineWidth}>
-        {/* Vertical lines */}
-        {Array.from({ length: colCount + 1 }).map((_, i) => (
+      {/* Faint dashed grid lines covering the full band (placeholder cells) */}
+      <g stroke={GRID_STROKE_LIGHT} strokeWidth={0.5} shapeRendering="crispEdges" strokeDasharray="2,3">
+        {Array.from({ length: displayCols + 1 }).map((_, i) => (
+          <line key={`fv${i}`} x1={ox + i * CELL} y1={oy} x2={ox + i * CELL} y2={oy + bandH} />
+        ))}
+        {Array.from({ length: displayRows + 1 }).map((_, i) => (
+          <line key={`fh${i}`} x1={ox} y1={oy + i * CELL} x2={ox + bandW} y2={oy + i * CELL} />
+        ))}
+      </g>
+
+      {/* Solid grid lines — only over the actual data area, aligned with cards */}
+      <g stroke={GRID_STROKE} strokeWidth={1} shapeRendering="crispEdges">
+        {Array.from({ length: actualCols + 1 }).map((_, i) => (
           <line
-            key={`v-${i}`}
-            x1={startX + i * cellWidth}
-            y1={startY}
-            x2={startX + i * cellWidth}
-            y2={startY + gridHeight}
-            stroke="rgb(51, 65, 85)"
-            shapeRendering="crispEdges"
+            key={`v${i}`}
+            x1={ox + (colOffset + i) * CELL} y1={oy + rowOffset * CELL}
+            x2={ox + (colOffset + i) * CELL} y2={oy + (rowOffset + actualRows) * CELL}
           />
         ))}
-        {/* Horizontal lines */}
-        {Array.from({ length: rowCount + 1 }).map((_, i) => (
+        {Array.from({ length: actualRows + 1 }).map((_, i) => (
           <line
-            key={`h-${i}`}
-            x1={startX}
-            y1={startY + i * cellHeight}
-            x2={startX + gridWidth}
-            y2={startY + i * cellHeight}
-            stroke="rgb(51, 65, 85)"
-            shapeRendering="crispEdges"
+            key={`h${i}`}
+            x1={ox + colOffset * CELL} y1={oy + (rowOffset + i) * CELL}
+            x2={ox + (colOffset + actualCols) * CELL} y2={oy + (rowOffset + i) * CELL}
           />
         ))}
       </g>
 
-      {/* Clickable cells and relationship dots */}
-      {rows.map((row, rowIdx) => (
-        cols.map((col, colIdx) => {
-          const cellX = startX + colIdx * cellWidth;
-          const cellY = startY + rowIdx * cellHeight;
-          const dotX = cellX + cellWidth / 2;
-          const dotY = cellY + cellHeight / 2;
-
-          const relationship = findRelationship(row.id, col.id);
-          const hasRelationship = relationship && relationship.strength !== 'none';
-          const shouldHighlight = isHighlighted(row.id) && isHighlighted(col.id);
+      {/* Clickable cells + relationship dots — offset to match card visual positions */}
+      {rows.map((row, ri) =>
+        cols.map((col, ci) => {
+          const cx = ox + (colOffset + ci) * CELL + CELL / 2;
+          const cy = oy + (rowOffset + ri) * CELL + CELL / 2;
+          const rel = findRel(row.id, col.id);
+          const hasRel = rel && rel.strength !== 'none';
+          const lit = isHighlighted(row.id) && isHighlighted(col.id);
 
           return (
-            <g key={`cell-${row.id}-${col.id}`}>
-              {/* Clickable area - only interactive in Edit Mode */}
+            <g key={`${row.id}-${col.id}`}>
               <rect
-                x={cellX}
-                y={cellY}
-                width={cellWidth}
-                height={cellHeight}
+                x={ox + (colOffset + ci) * CELL} y={oy + (rowOffset + ri) * CELL}
+                width={CELL} height={CELL}
                 fill="transparent"
                 style={{ cursor: isEditMode ? 'pointer' : 'default' }}
                 onClick={isEditMode ? () => onCellClick(row.id, rowType, col.id, colType) : undefined}
               />
-
-              {/* Relationship dot */}
-              {hasRelationship && (
+              {hasRel && (
                 <motion.circle
-                  cx={dotX}
-                  cy={dotY}
-                  r={getRelationshipDotSize(relationship.strength) / 2}
-                  fill={getRelationshipColor(relationship.strength)}
-                  opacity={shouldHighlight ? 1 : 0.4}
+                  cx={cx} cy={cy}
+                  r={getRelationshipDotSize(rel.strength) / 2}
+                  fill={getRelationshipColor(rel.strength)}
+                  opacity={lit ? 1 : 0.35}
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ duration: 0.2 }}
@@ -814,534 +424,259 @@ function RelationshipGrid({
             </g>
           );
         })
+      )}
+    </g>
+  );
+}
+
+// ============================================================================
+// HORIZONTAL CARD — Initiatives (top) & LTOs (bottom)
+// The interactive hitbox is ONLY the label rect over the diamond, not the
+// full-width row. This prevents accidental hover overlap with vertical cards.
+// ============================================================================
+interface HorizCardProps {
+  title: string;
+  health: 'on-track' | 'at-risk' | 'off-track';
+  cy: number;
+  dim: MatrixDimensions;
+  rotation: number;
+  opacity: number;
+  highlighted: boolean;
+  onHover: (h: boolean) => void;
+  onClick: () => void;
+  onDoubleClick?: () => void;
+  isEditMode: boolean;
+}
+
+function HorizCard({ title, health, cy, dim, rotation, opacity, highlighted, onHover, onClick, onDoubleClick, isEditMode }: HorizCardProps) {
+  const color = getHealthColor(health);
+  const lw = DIAMOND;
+  const lx = dim.centerX - lw / 2;
+  const ly = cy - CELL / 2 + 2;
+  const lh = CELL - 4;
+
+  const lineX1 = dim.topLeftX;
+  const lineX2 = dim.topRightX + dim.rightW;
+
+  return (
+    <g style={{ pointerEvents: 'none' }}>
+      {/* Decorative guide line — no pointer events */}
+      <line x1={lineX1} y1={cy} x2={lineX2} y2={cy} stroke={GRID_STROKE} strokeWidth={1} strokeDasharray="2,2" opacity={0.3} />
+
+      {/* Interactive label box — pointer events ONLY on this rect */}
+      <motion.g
+        animate={{ opacity }}
+        onMouseEnter={() => onHover(true)}
+        onMouseLeave={() => onHover(false)}
+        onClick={onClick}
+        onDoubleClick={isEditMode ? onDoubleClick : undefined}
+        style={{ cursor: isEditMode ? 'pointer' : 'default', pointerEvents: 'auto' }}
+      >
+        <rect x={lx} y={ly} width={lw} height={lh} fill={BG_CARD} stroke={highlighted ? color : GRID_STROKE} strokeWidth={highlighted ? 2 : 1} rx={3} />
+        <rect x={lx} y={ly} width={3} height={lh} fill={color} rx={1} />
+        <g transform={`rotate(${-rotation}, ${dim.centerX}, ${dim.centerY})`}>
+          <foreignObject x={lx + 6} y={ly} width={lw - 12} height={lh}>
+            <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium">
+              <span className="truncate text-center w-full">{title}</span>
+            </div>
+          </foreignObject>
+        </g>
+      </motion.g>
+    </g>
+  );
+}
+
+// ============================================================================
+// VERTICAL CARD — AOs (left) & KPIs (right)
+// Interactive hitbox is ONLY the label rect over the diamond.
+// ============================================================================
+interface VertCardProps {
+  title: string;
+  health: 'on-track' | 'at-risk' | 'off-track';
+  cx: number;
+  dim: MatrixDimensions;
+  rotation: number;
+  opacity: number;
+  highlighted: boolean;
+  onHover: (h: boolean) => void;
+  onClick: () => void;
+  onDoubleClick?: () => void;
+  isEditMode: boolean;
+}
+
+function VertCard({ title, health, cx, dim, rotation, opacity, highlighted, onHover, onClick, onDoubleClick, isEditMode }: VertCardProps) {
+  const color = getHealthColor(health);
+  const lh = DIAMOND;
+  const lx = cx - CELL / 2 + 2;
+  const ly = dim.centerY - lh / 2;
+  const lw = CELL - 4;
+
+  const lineY1 = dim.topLeftY;
+  const lineY2 = dim.bottomLeftY + dim.bottomH;
+
+  return (
+    <g style={{ pointerEvents: 'none' }}>
+      {/* Decorative guide line */}
+      <line x1={cx} y1={lineY1} x2={cx} y2={lineY2} stroke={GRID_STROKE} strokeWidth={1} strokeDasharray="2,2" opacity={0.3} />
+
+      {/* Interactive label box */}
+      <motion.g
+        animate={{ opacity }}
+        onMouseEnter={() => onHover(true)}
+        onMouseLeave={() => onHover(false)}
+        onClick={onClick}
+        onDoubleClick={isEditMode ? onDoubleClick : undefined}
+        style={{ cursor: isEditMode ? 'pointer' : 'default', pointerEvents: 'auto' }}
+      >
+        <rect x={lx} y={ly} width={lw} height={lh} fill={BG_CARD} stroke={highlighted ? color : GRID_STROKE} strokeWidth={highlighted ? 2 : 1} rx={3} />
+        <rect x={lx} y={ly} width={lw} height={3} fill={color} rx={1} />
+        <g transform={`rotate(${-rotation}, ${dim.centerX}, ${dim.centerY})`}>
+          <g transform={`rotate(-90, ${cx}, ${dim.centerY})`}>
+            <foreignObject x={cx - (lh - 10) / 2} y={dim.centerY - lw / 2} width={lh - 10} height={lw}>
+              <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium">
+                <span className="truncate text-center w-full">{title}</span>
+              </div>
+            </foreignObject>
+          </g>
+        </g>
+      </motion.g>
+    </g>
+  );
+}
+
+// ============================================================================
+// OWNER SECTION — header bar + vertical name labels + grid lines
+// ============================================================================
+function OwnerSection({
+  owners, dim, rotation, isHighlighted, getOpacity,
+  setHoveredElement, setSelectedElement, openEditModal, isEditMode,
+}: {
+  owners: Owner[];
+  dim: MatrixDimensions;
+  rotation: number;
+  isHighlighted: (id: string) => boolean;
+  getOpacity: (id: string) => number;
+  setHoveredElement: (e: any) => void;
+  setSelectedElement: (e: any) => void;
+  openEditModal: (type: EntityType, item: any) => void;
+  isEditMode: boolean;
+}) {
+  const { ownerGridX, ownerGridY, ownerW, topH, centerX, centerY, half, bottomH } = dim;
+
+  return (
+    <g className="owners-section">
+      {/* Header */}
+      <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
+        <rect x={ownerGridX} y={ownerGridY - OWNER_HEADER_H} width={ownerW} height={OWNER_HEADER_H} fill="rgb(51,65,85)" />
+        <text x={ownerGridX + ownerW / 2} y={ownerGridY - OWNER_HEADER_H / 2 + 4} textAnchor="middle" fill="rgb(148,163,184)" fontSize="10" fontWeight="600">Owners</text>
+      </g>
+
+      {/* Column grid lines */}
+      {Array.from({ length: owners.length + 1 }).map((_, i) => (
+        <line key={`oc${i}`} x1={ownerGridX + i * CELL} y1={ownerGridY} x2={ownerGridX + i * CELL} y2={ownerGridY + topH + DIAMOND + bottomH} stroke="rgb(71,85,105)" strokeWidth={1} shapeRendering="crispEdges" />
+      ))}
+      {/* Row grid lines aligned with initiatives */}
+      {Array.from({ length: dim.initCount + 1 }).map((_, i) => (
+        <line key={`or${i}`} x1={ownerGridX} y1={ownerGridY + i * CELL} x2={ownerGridX + ownerW} y2={ownerGridY + i * CELL} stroke="rgb(71,85,105)" strokeWidth={1} shapeRendering="crispEdges" />
+      ))}
+
+      {/* Owner name labels */}
+      {owners.map((owner, idx) => {
+        const cx = ownerGridX + idx * CELL + CELL / 2;
+        return (
+          <motion.g
+            key={owner.id}
+            animate={{ opacity: getOpacity(owner.id) }}
+            onMouseEnter={() => setHoveredElement({ id: owner.id, type: 'owner' })}
+            onMouseLeave={() => setHoveredElement(null)}
+            onClick={() => setSelectedElement({ id: owner.id, type: 'owner' })}
+            onDoubleClick={isEditMode ? () => openEditModal('owner', owner) : undefined}
+            style={{ cursor: isEditMode ? 'pointer' : 'default' }}
+          >
+            <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
+              <g transform={`rotate(-90, ${cx}, ${centerY})`}>
+                <foreignObject x={cx - 40} y={centerY - 12} width={80} height={24}>
+                  <div className="flex items-center justify-center w-full h-full text-[9px] font-medium">
+                    <span className={cn('truncate text-center w-full', isHighlighted(owner.id) ? 'text-blue-300' : 'text-slate-400')}>
+                      {owner.name}
+                    </span>
+                  </div>
+                </foreignObject>
+              </g>
+            </g>
+          </motion.g>
+        );
+      })}
+    </g>
+  );
+}
+
+// ============================================================================
+// EMPTY STATE PLACEHOLDERS — polished, enterprise-grade empty band messages
+// ============================================================================
+function EmptyStatePlaceholders({ dim, data, rotation }: { dim: MatrixDimensions; data: any; rotation: number }) {
+  const { centerX, centerY, topLeftX, topLeftY, topRightX, bottomLeftY, ownerGridX, leftW, rightW, topH, bottomH, ownerW } = dim;
+
+  const placeholders: { show: boolean; x: number; y: number; label: string; sub: string }[] = [
+    { show: data.initiatives.length === 0, x: centerX, y: topLeftY + topH / 2, label: 'No Initiatives', sub: 'Switch to Edit mode to add initiatives' },
+    { show: data.annualObjectives.length === 0, x: topLeftX + leftW / 2, y: centerY, label: 'No Annual Objectives', sub: 'Switch to Edit mode to add' },
+    { show: data.kpis.length === 0, x: topRightX + rightW / 2, y: centerY, label: 'No KPIs', sub: 'Switch to Edit mode to add KPIs' },
+    { show: data.longTermObjectives.length === 0, x: centerX, y: bottomLeftY + bottomH / 2, label: 'No Long-Term Objectives', sub: 'Switch to Edit mode to add' },
+    { show: data.owners.length === 0, x: ownerGridX + ownerW / 2, y: centerY, label: 'No Owners', sub: 'Add owners' },
+  ];
+
+  return (
+    <g>
+      {placeholders.filter(p => p.show).map((p, i) => (
+        <g key={i} transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
+          <text x={p.x} y={p.y - 6} textAnchor="middle" fill="rgb(100,116,139)" fontSize="11" fontWeight="500">{p.label}</text>
+          <text x={p.x} y={p.y + 10} textAnchor="middle" fill="rgb(71,85,105)" fontSize="9">{p.sub}</text>
+        </g>
       ))}
     </g>
   );
 }
 
 // ============================================================================
-// INITIATIVE CELL - Horizontal row (text reads left to right)
+// ADD BUTTONS — positions driven by layout.ts dimensions
 // ============================================================================
-interface InitiativeCellProps {
-  title: string;
-  health: 'on-track' | 'at-risk' | 'off-track';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  center: { x: number; y: number };
-  opacity: number;
-  isHighlighted: boolean;
-  onHover: (hover: boolean) => void;
-  onClick: () => void;
-  onDoubleClick?: () => void;
-  isEditMode: boolean;
-}
+function AddButtons({ dim, rotation, openAddModal }: { dim: MatrixDimensions; rotation: number; openAddModal: (type: EntityType) => void }) {
+  const { centerX, centerY, topLeftX, topLeftY, topRightX, bottomLeftY, ownerGridX, rightW, bottomH, ownerW } = dim;
+  const sz = 20;
 
-function InitiativeCell({
-  title,
-  health,
-  x,
-  y,
-  width,
-  height,
-  rotation,
-  center,
-  opacity,
-  isHighlighted,
-  onHover,
-  onClick,
-  onDoubleClick,
-  isEditMode,
-}: InitiativeCellProps) {
-  const healthColor = getHealthColor(health);
-  const labelWidth = GRID.diamondSize;
+  const buttons: { x: number; y: number; label: string; type: EntityType; vertical?: boolean }[] = [
+    { x: centerX, y: topLeftY - 25, label: '+ Initiative', type: 'initiative' },
+    { x: topLeftX - 25, y: centerY, label: '+ AO', type: 'ao', vertical: true },
+    { x: topRightX + rightW + OWNER_GAP / 2, y: centerY, label: '+ KPI', type: 'kpi', vertical: true },
+    { x: ownerGridX + ownerW + 25, y: centerY, label: '+ Owner', type: 'owner', vertical: true },
+    { x: centerX, y: bottomLeftY + bottomH + 25, label: '+ LTO', type: 'lto' },
+  ];
 
   return (
-    <motion.g
-      animate={{ opacity }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      onClick={onClick}
-      onDoubleClick={isEditMode ? onDoubleClick : undefined}
-      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
-    >
-      <line
-        x1={x - width / 2}
-        y1={y}
-        x2={x + width / 2}
-        y2={y}
-        stroke="rgb(51, 65, 85)"
-        strokeWidth="1"
-        strokeDasharray="2,2"
-        opacity={0.3}
-      />
-      <rect
-        x={center.x - labelWidth / 2}
-        y={y - height / 2 + 2}
-        width={labelWidth}
-        height={height - 4}
-        fill="rgb(30, 41, 59)"
-        stroke={isHighlighted ? healthColor : 'rgb(51, 65, 85)'}
-        strokeWidth={isHighlighted ? 2 : 1}
-        rx="2"
-      />
-      <rect
-        x={center.x - labelWidth / 2}
-        y={y - height / 2 + 2}
-        width="3"
-        height={height - 4}
-        fill={healthColor}
-        rx="1"
-      />
-      <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <foreignObject
-          x={center.x - labelWidth / 2 + 5}
-          y={y - height / 2 + 2}
-          width={labelWidth - 10}
-          height={height - 4}
+    <g>
+      {buttons.map((btn) => (
+        <motion.g
+          key={btn.type}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.6 }}
+          whileHover={{ opacity: 1, scale: 1.1 }}
+          onClick={() => openAddModal(btn.type)}
+          style={{ cursor: 'pointer' }}
         >
-          <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium px-2">
-            <span className="truncate w-full text-center">
-              {title}
-            </span>
-          </div>
-        </foreignObject>
-      </g>
-    </motion.g>
-  );
-}
-
-// ============================================================================
-// VERTICAL CELL - For Annual Objectives (text rotated 90° bottom to top)
-// ============================================================================
-interface VerticalCellProps {
-  title: string;
-  health: 'on-track' | 'at-risk' | 'off-track';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  center: { x: number; y: number };
-  opacity: number;
-  isHighlighted: boolean;
-  onHover: (hover: boolean) => void;
-  onClick: () => void;
-  onDoubleClick?: () => void;
-  isEditMode: boolean;
-}
-
-function VerticalCell({
-  title,
-  health,
-  x,
-  y,
-  width,
-  height,
-  rotation,
-  center,
-  opacity,
-  isHighlighted,
-  onHover,
-  onClick,
-  onDoubleClick,
-  isEditMode,
-}: VerticalCellProps) {
-  const healthColor = getHealthColor(health);
-  const labelHeight = GRID.diamondSize;
-
-  return (
-    <motion.g
-      animate={{ opacity }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      onClick={onClick}
-      onDoubleClick={isEditMode ? onDoubleClick : undefined}
-      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
-    >
-      <line
-        x1={x}
-        y1={y - height / 2}
-        x2={x}
-        y2={y + height / 2}
-        stroke="rgb(51, 65, 85)"
-        strokeWidth="1"
-        strokeDasharray="2,2"
-        opacity={0.3}
-      />
-      <rect
-        x={x - width / 2 + 2}
-        y={center.y - labelHeight / 2}
-        width={width - 4}
-        height={labelHeight}
-        fill="rgb(30, 41, 59)"
-        stroke={isHighlighted ? healthColor : 'rgb(51, 65, 85)'}
-        strokeWidth={isHighlighted ? 2 : 1}
-        rx="2"
-      />
-      <rect
-        x={x - width / 2 + 2}
-        y={center.y - labelHeight / 2}
-        width={width - 4}
-        height="3"
-        fill={healthColor}
-        rx="1"
-      />
-      <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <g transform={`rotate(-90, ${x}, ${center.y})`}>
-          <foreignObject
-            x={x - (labelHeight - 10) / 2 + 5}
-            y={center.y - (width - 4) / 2}
-            width={labelHeight - 20}
-            height={width - 4}
-          >
-            <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium px-2">
-              <span className="truncate w-full text-center">
-                {title}
-              </span>
-            </div>
-          </foreignObject>
-        </g>
-      </g>
-    </motion.g>
-  );
-}
-
-// ============================================================================
-// HORIZONTAL CELL - For Long-Term Objectives (text reads left to right)
-// ============================================================================
-interface HorizontalCellProps {
-  title: string;
-  health: 'on-track' | 'at-risk' | 'off-track';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  center: { x: number; y: number };
-  opacity: number;
-  isHighlighted: boolean;
-  isEditMode: boolean;
-  onHover: (hover: boolean) => void;
-  onClick: () => void;
-  onDoubleClick?: () => void;
-}
-
-function HorizontalCell({
-  title,
-  health,
-  x,
-  y,
-  width,
-  height,
-  rotation,
-  center,
-  opacity,
-  isHighlighted,
-  isEditMode,
-  onHover,
-  onClick,
-  onDoubleClick,
-}: HorizontalCellProps) {
-  const healthColor = getHealthColor(health);
-  const labelWidth = GRID.diamondSize;
-
-  return (
-    <motion.g
-      animate={{ opacity }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      onClick={onClick}
-      onDoubleClick={isEditMode ? onDoubleClick : undefined}
-      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
-    >
-      <line
-        x1={x - width / 2}
-        y1={y}
-        x2={x + width / 2}
-        y2={y}
-        stroke="rgb(51, 65, 85)"
-        strokeWidth="1"
-        strokeDasharray="2,2"
-        opacity={0.3}
-      />
-      <rect
-        x={center.x - labelWidth / 2}
-        y={y - height / 2 + 2}
-        width={labelWidth}
-        height={height - 4}
-        fill="rgb(30, 41, 59)"
-        stroke={isHighlighted ? healthColor : 'rgb(51, 65, 85)'}
-        strokeWidth={isHighlighted ? 2 : 1}
-        rx="2"
-      />
-      <rect
-        x={center.x - labelWidth / 2}
-        y={y - height / 2 + 2}
-        width="3"
-        height={height - 4}
-        fill={healthColor}
-        rx="1"
-      />
-      <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <foreignObject
-          x={center.x - labelWidth / 2 + 5}
-          y={y - height / 2 + 2}
-          width={labelWidth - 10}
-          height={height - 4}
-        >
-          <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium px-2">
-            <span className="truncate w-full text-center">
-              {title}
-            </span>
-          </div>
-        </foreignObject>
-      </g>
-    </motion.g>
-  );
-}
-
-// ============================================================================
-// KPI CELL - Vertical column (text rotated 90° bottom to top)
-// ============================================================================
-interface KPICellProps {
-  kpi: KPI;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  center: { x: number; y: number };
-  opacity: number;
-  isHighlighted: boolean;
-  isEditMode: boolean;
-  onHover: (hover: boolean) => void;
-  onClick: () => void;
-  onDoubleClick?: () => void;
-}
-
-function KPICell({
-  kpi,
-  x,
-  y,
-  width,
-  height,
-  rotation,
-  center,
-  opacity,
-  isHighlighted,
-  isEditMode,
-  onHover,
-  onClick,
-  onDoubleClick,
-}: KPICellProps) {
-  const healthColor = getHealthColor(kpi.health);
-  const labelHeight = GRID.diamondSize;
-
-  return (
-    <motion.g
-      animate={{ opacity }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      onClick={onClick}
-      onDoubleClick={isEditMode ? onDoubleClick : undefined}
-      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
-    >
-      <line
-        x1={x}
-        y1={y - height / 2}
-        x2={x}
-        y2={y + height / 2}
-        stroke="rgb(51, 65, 85)"
-        strokeWidth="1"
-        strokeDasharray="2,2"
-        opacity={0.3}
-      />
-      <rect
-        x={x - width / 2 + 2}
-        y={center.y - labelHeight / 2}
-        width={width - 4}
-        height={labelHeight}
-        fill="rgb(30, 41, 59)"
-        stroke={isHighlighted ? healthColor : 'rgb(51, 65, 85)'}
-        strokeWidth={isHighlighted ? 2 : 1}
-        rx="2"
-      />
-      <rect
-        x={x - width / 2 + 2}
-        y={center.y - labelHeight / 2}
-        width={width - 4}
-        height="3"
-        fill={healthColor}
-        rx="1"
-      />
-      <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <g transform={`rotate(-90, ${x}, ${center.y})`}>
-          <foreignObject
-            x={x - (labelHeight - 10) / 2 + 5}
-            y={center.y - (width - 4) / 2}
-            width={labelHeight - 20}
-            height={width - 4}
-          >
-            <div className="flex items-center justify-center w-full h-full text-white text-[9px] font-medium px-2">
-              <span className="truncate w-full text-center">
-                {kpi.title}
-              </span>
-            </div>
-          </foreignObject>
-        </g>
-      </g>
-    </motion.g>
-  );
-}
-
-// ============================================================================
-// OWNER HEADER CELL - Vertical text at bottom of owner column (like reference)
-// ============================================================================
-interface OwnerHeaderCellProps {
-  owner: Owner;
-  x: number;
-  y: number;
-  rotation: number;
-  center: { x: number; y: number };
-  opacity: number;
-  isHighlighted: boolean;
-  isEditMode: boolean;
-  onHover: (hover: boolean) => void;
-  onClick: () => void;
-  onDoubleClick?: () => void;
-}
-
-function OwnerHeaderCell({
-  owner,
-  x,
-  y,
-  rotation,
-  center,
-  opacity,
-  isHighlighted,
-  isEditMode,
-  onHover,
-  onClick,
-  onDoubleClick,
-}: OwnerHeaderCellProps) {
-  const labelHeight = 80;
-
-  return (
-    <motion.g
-      animate={{ opacity }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-      onClick={onClick}
-      onDoubleClick={isEditMode ? onDoubleClick : undefined}
-      style={{ cursor: isEditMode ? 'pointer' : 'default' }}
-    >
-      <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <g transform={`rotate(-90, ${x}, ${y})`}>
-          <foreignObject
-            x={x - labelHeight / 2}
-            y={y - 12}
-            width={labelHeight}
-            height={24}
-          >
-            <div className="flex items-center justify-center w-full h-full text-[9px] font-medium px-1">
-              <span
-                className={cn(
-                  "truncate w-full text-center",
-                  isHighlighted ? "text-blue-300" : "text-slate-400"
-                )}
-              >
-                {owner.name}
-              </span>
-            </div>
-          </foreignObject>
-        </g>
-      </g>
-    </motion.g>
-  );
-}
-
-// ============================================================================
-// ADD BUTTON COMPONENT
-// ============================================================================
-interface AddButtonProps {
-  x: number;
-  y: number;
-  label: string;
-  onClick: () => void;
-  rotation: number;
-  center: { x: number; y: number };
-  vertical?: boolean;
-}
-
-function AddButton({ x, y, label, onClick, rotation, center, vertical }: AddButtonProps) {
-  const size = 20;
-
-  return (
-    <motion.g
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 0.6 }}
-      whileHover={{ opacity: 1, scale: 1.1 }}
-      onClick={onClick}
-      style={{ cursor: 'pointer' }}
-    >
-      <rect
-        x={x - size / 2}
-        y={y - size / 2}
-        width={size}
-        height={size}
-        rx="3"
-        fill="rgb(30, 58, 138)"
-        stroke="rgb(59, 130, 246)"
-        strokeWidth="1"
-      />
-      <g transform={`rotate(${-rotation}, ${center.x}, ${center.y})`}>
-        <line
-          x1={x - 5}
-          y1={y}
-          x2={x + 5}
-          y2={y}
-          stroke="rgb(147, 197, 253)"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-        <line
-          x1={x}
-          y1={y - 5}
-          x2={x}
-          y2={y + 5}
-          stroke="rgb(147, 197, 253)"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-        {vertical ? (
-          <g transform={`rotate(-90, ${x}, ${y + size / 2 + 15})`}>
-            <text
-              x={x}
-              y={y + size / 2 + 15}
-              textAnchor="middle"
-              fill="rgb(147, 197, 253)"
-              fontSize="8"
-              fontWeight="500"
-            >
-              {label}
-            </text>
+          <rect x={btn.x - sz / 2} y={btn.y - sz / 2} width={sz} height={sz} rx={3} fill="rgb(30,58,138)" stroke="rgb(59,130,246)" strokeWidth={1} />
+          <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
+            <line x1={btn.x - 5} y1={btn.y} x2={btn.x + 5} y2={btn.y} stroke="rgb(147,197,253)" strokeWidth={1.5} strokeLinecap="round" />
+            <line x1={btn.x} y1={btn.y - 5} x2={btn.x} y2={btn.y + 5} stroke="rgb(147,197,253)" strokeWidth={1.5} strokeLinecap="round" />
+            {btn.vertical ? (
+              <g transform={`rotate(-90, ${btn.x}, ${btn.y + sz / 2 + 15})`}>
+                <text x={btn.x} y={btn.y + sz / 2 + 15} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
+              </g>
+            ) : (
+              <text x={btn.x} y={btn.y + sz / 2 + 12} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
+            )}
           </g>
-        ) : (
-          <text
-            x={x}
-            y={y + size / 2 + 12}
-            textAnchor="middle"
-            fill="rgb(147, 197, 253)"
-            fontSize="8"
-            fontWeight="500"
-          >
-            {label}
-          </text>
-        )}
-      </g>
-    </motion.g>
+        </motion.g>
+      ))}
+    </g>
   );
 }

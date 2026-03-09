@@ -74,6 +74,9 @@ CREATE TABLE IF NOT EXISTS kpis (
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
   trend TEXT CHECK(trend IN ('up', 'down', 'stable')),
   owner_ids TEXT, -- JSON array stored as string
+  start_date TEXT,
+  end_date TEXT,
+  target_distribution TEXT CHECK(target_distribution IN ('equal', 'linear', 'front-loaded', 'back-loaded')) DEFAULT 'equal',
   FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE
 );
 
@@ -84,7 +87,7 @@ CREATE TABLE IF NOT EXISTS monthly_kpi_data (
   month TEXT,
   target REAL,
   actual REAL,
-  variance REAL,
+  variance REAL, 
   FOREIGN KEY (kpi_id) REFERENCES kpis(id) ON DELETE CASCADE
 );
 
