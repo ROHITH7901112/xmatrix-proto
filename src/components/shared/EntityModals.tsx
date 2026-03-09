@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Save, Loader2, Trash2 } from 'lucide-react';
-import { LongTermObjective, AnnualObjective, Initiative, KPI, Owner, HealthStatus, ResponsibilityType, Trend } from '@/lib/types';
-import { generateId } from '@/lib/utils';
+import { LongTermObjective, AnnualObjective, Initiative, KPI, Owner, HealthStatus, ResponsibilityType, Trend, TargetDistribution, KPI_UNITS } from '@/lib/types';
+import { generateId, cn } from '@/lib/utils';
 
 // Helper function to calculate next sequential code
 function getNextCode(existingCodes: string[], prefix: string): string {
@@ -38,15 +38,15 @@ export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; o
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0.95, opacity: 0 }}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-full max-w-lg bg-slate-900 rounded-xl border border-slate-700 shadow-2xl overflow-hidden"
+                    className="w-full max-w-lg bg-slate-900 rounded-xl border border-slate-700 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
                 >
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 flex-shrink-0">
                         <h2 className="text-lg font-semibold text-white">{title}</h2>
                         <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
                             <X className="w-5 h-5" />
                         </button>
                     </div>
-                    <div className="p-6">{children}</div>
+                    <div className="p-6 overflow-y-auto">{children}</div>
                 </motion.div>
             </motion.div>
         </AnimatePresence>
@@ -319,10 +319,96 @@ export function InitiativeForm({
     );
 }
 
+// ============================================================================
+// Target distribution helper
+// ============================================================================
+
+const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function computeDistributedTargets(
+  totalTarget: number,
+  startDate: string,
+  endDate: string,
+  distribution: TargetDistribution,
+): MonthlyKPIData[] {
+  if (!startDate || !endDate) {
+    // No dates set — all months get equal share
+    const perMonth = totalTarget / 12;
+    return ALL_MONTHS.map(month => ({ month, target: Math.round(perMonth * 100) / 100, actual: null, variance: null }));
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  // Determine active month indices (0-based)
+  const activeIndices: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    // Use the first day of each month in the current year of start
+    const monthDate = new Date(start.getFullYear(), i, 1);
+    const monthEnd = new Date(start.getFullYear(), i + 1, 0);
+    if (monthEnd >= start && monthDate <= end) activeIndices.push(i);
+  }
+
+  if (activeIndices.length === 0) {
+    return ALL_MONTHS.map(month => ({ month, target: 0, actual: null, variance: null }));
+  }
+
+  const n = activeIndices.length;
+  let weights: number[];
+
+  switch (distribution) {
+    case 'linear': {
+      // Ramp up: weight proportional to position (1, 2, 3, …n)
+      weights = activeIndices.map((_, idx) => idx + 1);
+      break;
+    }
+    case 'front-loaded': {
+      // Heavier on early months: n, n-1, …1
+      weights = activeIndices.map((_, idx) => n - idx);
+      break;
+    }
+    case 'back-loaded': {
+      // Same as linear — heavier on later months
+      weights = activeIndices.map((_, idx) => idx + 1);
+      break;
+    }
+    case 'equal':
+    default:
+      weights = activeIndices.map(() => 1);
+  }
+
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const targets = weights.map(w => Math.round((totalTarget * w / totalWeight) * 100) / 100);
+
+  // Fix rounding residual on last active month
+  const diff = totalTarget - targets.reduce((a, b) => a + b, 0);
+  targets[targets.length - 1] = Math.round((targets[targets.length - 1] + diff) * 100) / 100;
+
+  const targetMap = new Map<number, number>(activeIndices.map((mi, i) => [mi, targets[i]]));
+  return ALL_MONTHS.map((month, idx) => ({
+    month,
+    target: targetMap.get(idx) ?? 0,
+    actual: null,
+    variance: null,
+  }));
+}
+
+interface MonthlyKPIData {
+  month: string;
+  target: number;
+  actual: number | null;
+  variance: number | null;
+}
+
+// ============================================================================
+// KPI Form
+// ============================================================================
+
 // KPI Form
 export function KPIForm({
     initialData,
     existingItems,
+    availableOwners,
     onSubmit,
     onDelete,
     onCancel,
@@ -330,11 +416,13 @@ export function KPIForm({
 }: {
     initialData?: KPI;
     existingItems?: KPI[];
+    availableOwners?: Owner[];
     onSubmit: (data: KPI) => void;
     onDelete?: () => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
+    const today = new Date().toISOString().split('T')[0];
     const nextCode = !initialData && existingItems ? getNextCode(existingItems.map(item => item.code), 'K') : '';
     const [formData, setFormData] = useState<KPI>(initialData || {
         id: generateId('kpi'),
@@ -347,19 +435,204 @@ export function KPIForm({
         trend: 'stable',
         ownerIds: [],
         monthlyData: [],
+        startDate: today,
+        endDate: new Date(new Date().getFullYear(), 11, 31).toISOString().split('T')[0],
+        targetDistribution: 'equal',
     });
 
+    // Whenever target, dates or distribution changes, preview the monthly split
+    const previewMonthly = computeDistributedTargets(
+        formData.targetValue,
+        formData.startDate || '',
+        formData.endDate || '',
+        formData.targetDistribution || 'equal',
+    );
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const kpiWithMonthly: KPI = {
+            ...formData,
+            monthlyData: computeDistributedTargets(
+                formData.targetValue,
+                formData.startDate || '',
+                formData.endDate || '',
+                formData.targetDistribution || 'equal',
+            ),
+        };
+        onSubmit(kpiWithMonthly);
+    };
+
+    const isCustomUnit = !KPI_UNITS.some(u => u.value === formData.unit && u.value !== 'custom');
+
     return (
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Code + Unit row */}
             <div className="grid grid-cols-2 gap-4">
-                <FormInput label="Code" placeholder="K-1" value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })} required />
-                <FormInput label="Unit" placeholder="%" value={formData.unit} onChange={(e) => setFormData({ ...formData, unit: e.target.value })} required />
+                <FormInput
+                    label="Code"
+                    placeholder="K-1"
+                    value={formData.code}
+                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                    required
+                />
+                {/* Unit dropdown */}
+                <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-300">Unit</label>
+                    <select
+                        value={KPI_UNITS.some(u => u.value === formData.unit) ? formData.unit : 'custom'}
+                        onChange={(e) => {
+                            if (e.target.value === 'custom') {
+                                setFormData({ ...formData, unit: '' });
+                            } else {
+                                setFormData({ ...formData, unit: e.target.value });
+                            }
+                        }}
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    >
+                        {KPI_UNITS.map(u => (
+                            <option key={u.value} value={u.value}>{u.label}</option>
+                        ))}
+                    </select>
+                    {/* Custom unit input */}
+                    {(!KPI_UNITS.some(u => u.value === formData.unit) || formData.unit === '') && (
+                        <input
+                            type="text"
+                            placeholder="Enter custom unit…"
+                            value={formData.unit}
+                            onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                            required
+                            className="w-full px-3 py-2 mt-1 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        />
+                    )}
+                </div>
             </div>
-            <FormInput label="Title" placeholder="Enterprise Win Rate" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
+
+            {/* Title */}
+            <FormInput
+                label="Title"
+                placeholder="e.g. Enterprise Win Rate"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                required
+            />
+
+            {/* Owner(s) */}
+            {availableOwners && availableOwners.length > 0 && (
+                <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-300">
+                        Owner(s)
+                        {formData.ownerIds.length > 0 && (
+                            <span className="ml-2 text-xs font-normal text-blue-400">{formData.ownerIds.length} selected</span>
+                        )}
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                        {availableOwners.map(owner => {
+                            const isSelected = formData.ownerIds.includes(owner.id);
+                            return (
+                                <button
+                                    key={owner.id}
+                                    type="button"
+                                    onClick={() => {
+                                        const newOwnerIds = isSelected
+                                            ? formData.ownerIds.filter(id => id !== owner.id)
+                                            : [...formData.ownerIds, owner.id];
+                                        setFormData({ ...formData, ownerIds: newOwnerIds });
+                                    }}
+                                    className={cn(
+                                        'flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm transition-all',
+                                        isSelected
+                                            ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                                    )}
+                                >
+                                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-white text-[10px] font-bold flex-shrink-0">
+                                        {owner.initials}
+                                    </div>
+                                    <span>{owner.name}</span>
+                                    {isSelected && (
+                                        <svg className="w-3 h-3 text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                        </svg>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {formData.ownerIds.length === 0 && (
+                        <p className="text-xs text-slate-500">Click to assign owner(s)</p>
+                    )}
+                </div>
+            )}
+
+            {/* Current + Total Target */}
             <div className="grid grid-cols-2 gap-4">
-                <FormInput label="Current Value" type="number" step="0.01" value={formData.currentValue} onChange={(e) => setFormData({ ...formData, currentValue: parseFloat(e.target.value) || 0 })} required />
-                <FormInput label="Target Value" type="number" step="0.01" value={formData.targetValue} onChange={(e) => setFormData({ ...formData, targetValue: parseFloat(e.target.value) || 0 })} required />
+                <FormInput
+                    label="Current Value"
+                    type="number"
+                    step="0.01"
+                    value={formData.currentValue}
+                    onChange={(e) => setFormData({ ...formData, currentValue: parseFloat(e.target.value) || 0 })}
+                    required
+                />
+                <FormInput
+                    label={`Annual Target (${formData.unit || '?'})`}
+                    type="number"
+                    step="0.01"
+                    value={formData.targetValue}
+                    onChange={(e) => setFormData({ ...formData, targetValue: parseFloat(e.target.value) || 0 })}
+                    required
+                />
             </div>
+
+            {/* Date range */}
+            <div className="grid grid-cols-2 gap-4">
+                <FormInput
+                    label="Start Date"
+                    type="date"
+                    value={formData.startDate || ''}
+                    onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                    required
+                />
+                <FormInput
+                    label="End Date"
+                    type="date"
+                    value={formData.endDate || ''}
+                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                    required
+                />
+            </div>
+
+            {/* Distribution method */}
+            <FormSelect
+                label="Target Distribution Across Months"
+                value={formData.targetDistribution || 'equal'}
+                onChange={(e) => setFormData({ ...formData, targetDistribution: e.target.value as TargetDistribution })}
+                options={[
+                    { value: 'equal', label: 'Equal — same target every active month' },
+                    { value: 'linear', label: 'Linear ramp-up — increases each month' },
+                    { value: 'front-loaded', label: 'Front-loaded — higher target in early months' },
+                    { value: 'back-loaded', label: 'Back-loaded — higher target in later months' },
+                ]}
+            />
+
+            {/* Monthly target preview */}
+            <div className="rounded-lg border border-slate-700 overflow-hidden">
+                <div className="px-3 py-2 bg-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                    Monthly Target Preview
+                </div>
+                <div className="grid grid-cols-6 gap-px bg-slate-700">
+                    {previewMonthly.map(({ month, target }) => (
+                        <div key={month} className="flex flex-col items-center px-1 py-2 bg-slate-900 text-center">
+                            <span className="text-[10px] text-slate-500 mb-0.5">{month}</span>
+                            <span className={`text-xs font-semibold ${target > 0 ? 'text-blue-300' : 'text-slate-600'}`}>
+                                {target > 0 ? target : '—'}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Status + Trend */}
             <div className="grid grid-cols-2 gap-4">
                 <FormSelect
                     label="Status"
@@ -382,6 +655,8 @@ export function KPIForm({
                     ]}
                 />
             </div>
+
+            {/* Actions */}
             <div className="flex justify-between pt-4">
                 {initialData && onDelete && (
                     <button

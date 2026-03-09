@@ -248,17 +248,48 @@ export function useXMatrixCRUD() {
         if (!data) return;
         setIsSaving(true);
         try {
+            // monthlyData is already computed with distributed targets from the KPIForm
+            const kpiWithMonthlyData = {
+                ...kpi,
+                // Ensure monthlyData is always present (fallback: 12 empty months)
+                monthlyData: kpi.monthlyData && kpi.monthlyData.length === 12
+                    ? kpi.monthlyData
+                    : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(month => ({
+                        month,
+                        target: 0,
+                        actual: null,
+                        variance: null,
+                    })),
+            };
+
             if (isEditMode) {
-                // In edit mode: add to draft state only
-                createKPI(kpi);
+                createKPI(kpiWithMonthlyData);
+                // Create kpi-owner relationships in draft state
+                for (const ownerId of kpiWithMonthlyData.ownerIds) {
+                    store.toggleRelationship(kpiWithMonthlyData.id, 'kpi', ownerId, 'owner');
+                }
                 closeModal();
             } else {
-                // In view mode: save to server directly
                 await fetch('/api/kpis', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ xmatrixId: data.id, ...kpi, monthlyData: [] }),
+                    body: JSON.stringify({ xmatrixId: data.id, ...kpiWithMonthlyData }),
                 });
+                // Create kpi-owner relationships for each selected owner
+                for (const ownerId of kpiWithMonthlyData.ownerIds) {
+                    await fetch('/api/relationships', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            xmatrixId: data.id,
+                            sourceId: kpiWithMonthlyData.id,
+                            sourceType: 'kpi',
+                            targetId: ownerId,
+                            targetType: 'owner',
+                            strength: 'primary',
+                        }),
+                    });
+                }
                 await store.fetchData();
                 closeModal();
             }

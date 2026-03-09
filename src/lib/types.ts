@@ -62,6 +62,24 @@ export interface Initiative {
   endDate: string;
 }
 
+export type TargetDistribution = 'equal' | 'linear' | 'front-loaded' | 'back-loaded';
+
+export const KPI_UNITS = [
+  { value: '%', label: '% — Percentage' },
+  { value: '$', label: '$ — US Dollar' },
+  { value: '₹', label: '₹ — Indian Rupee' },
+  { value: '€', label: '€ — Euro' },
+  { value: '£', label: '£ — British Pound' },
+  { value: '¥', label: '¥ — Japanese Yen' },
+  { value: '#', label: '# — Count / Units' },
+  { value: 'hrs', label: 'hrs — Hours' },
+  { value: 'days', label: 'days — Days' },
+  { value: 'pts', label: 'pts — Points' },
+  { value: 'x', label: 'x — Multiplier / Ratio' },
+  { value: 'NPS', label: 'NPS — Net Promoter Score' },
+  { value: 'custom', label: 'custom — Other' },
+] as const;
+
 export interface KPI {
   id: string;
   code: string;
@@ -73,6 +91,11 @@ export interface KPI {
   trend: Trend;
   ownerIds: string[];
   monthlyData: MonthlyKPIData[];
+  /** ISO date strings for the KPI tracking window */
+  startDate?: string;
+  endDate?: string;
+  /** How the annual target is split across active months */
+  targetDistribution?: TargetDistribution;
 }
 
 export interface MonthlyKPIData {

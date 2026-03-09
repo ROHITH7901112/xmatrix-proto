@@ -1,7 +1,9 @@
 // Global State Store using Zustand - with API integration
 
 import { create } from 'zustand';
-import { ViewState, SelectedElement, HoveredElement, FilterState, XMatrixData, Relationship, RelationshipStrength, LongTermObjective, AnnualObjective, Initiative, KPI, Owner, EditModeState } from './types';
+import { ViewState, SelectedElement, HoveredElement, FilterState, XMatrixData, Relationship, RelationshipStrength, LongTermObjective, AnnualObjective, Initiative, KPI, Owner, EditModeState, MonthlyKPIData } from './types';
+// Do not seed UI with mock data by default; app will fetch real data via API
+import { computeVariance, deriveHealth, deriveTrend, isLowerBetter, getCurrentValue } from './kpi-calculations';
 import { xMatrixData as mockData } from './mock-data';
 
 // Deep clone helper for draft state
@@ -80,6 +82,10 @@ interface XMatrixStore {
   updateOwner: (id: string, data: Partial<Owner>) => Promise<void>;
   deleteOwner: (id: string) => Promise<void>;
 
+  // Bowling Chart Actions
+  updateMonthlyKpiData: (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
+  refreshKpiMonthlyData: (kpiId: string) => Promise<void>;
+
   // Computed
   getRelatedElements: (elementId: string, elementType: string) => Set<string>;
   getHighlightedElements: () => Set<string>;
@@ -114,7 +120,8 @@ const initialEditModeState: EditModeState = {
 const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
-  data: mockData, // Start with mock data as fallback
+  // Start with an empty XMatrix until `fetchData()` populates it from the server
+    data: mockData,
   isLoading: false,
   error: null,
   viewState: initialViewState,
@@ -930,5 +937,118 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     return activeData.relationships.filter(
       (rel) => rel.sourceId === activeElement.id || rel.targetId === activeElement.id
     );
+  },
+
+  // Bowling Chart Actions
+  updateMonthlyKpiData: async (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => {
+    const state = get();
+    const kpi = state.data.kpis.find(k => k.id === kpiId);
+    if (!kpi) return;
+
+    // 1. Optimistic update — compute new monthly data locally
+    const updatedMonthlyData = kpi.monthlyData.map(m => {
+      if (m.month !== month) return m;
+      const newTarget = patch.target !== undefined ? patch.target : m.target;
+      const newActual = patch.actual !== undefined ? patch.actual : m.actual;
+      const newVariance = computeVariance(newActual, newTarget);
+      return { ...m, target: newTarget, actual: newActual, variance: newVariance };
+    });
+
+    // If month doesn't exist in array, add it
+    if (!updatedMonthlyData.find(m => m.month === month)) {
+      const target = patch.target ?? 0;
+      const actual = patch.actual !== undefined ? patch.actual : null;
+      updatedMonthlyData.push({
+        month,
+        target,
+        actual,
+        variance: computeVariance(actual, target),
+      });
+    }
+
+    // 2. Derive new health and trend deterministically
+    const lowerBetter = isLowerBetter(kpi.unit, kpi.code);
+    const newHealth = deriveHealth(updatedMonthlyData, undefined, lowerBetter);
+    const newTrend = deriveTrend(updatedMonthlyData, lowerBetter);
+    const newCurrentValue = getCurrentValue(updatedMonthlyData);
+
+    // 3. Apply optimistic update to store
+    const updatedKpi: KPI = {
+      ...kpi,
+      monthlyData: updatedMonthlyData,
+      health: newHealth,
+      trend: newTrend,
+      currentValue: newCurrentValue,
+    };
+
+    set(state => ({
+      data: {
+        ...state.data,
+        kpis: state.data.kpis.map(k => k.id === kpiId ? updatedKpi : k),
+      },
+    }));
+
+    // 4. Persist to backend
+    try {
+      const response = await fetch(`/api/kpis/${kpiId}/monthly`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthlyData: [{ month, ...patch, variance: computeVariance(patch.actual ?? null, patch.target ?? 0) }],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save monthly data');
+      }
+
+      // Also update KPI metadata (health, trend, currentValue) on server
+      await fetch(`/api/kpis/${kpiId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          health: newHealth,
+          trend: newTrend,
+          currentValue: newCurrentValue,
+        }),
+      });
+    } catch (error) {
+      console.error('Error persisting monthly data, rolling back:', error);
+      // Rollback — restore original KPI
+      set(state => ({
+        data: {
+          ...state.data,
+          kpis: state.data.kpis.map(k => k.id === kpiId ? kpi : k),
+        },
+      }));
+    }
+  },
+
+  refreshKpiMonthlyData: async (kpiId: string) => {
+    try {
+      const response = await fetch(`/api/kpis/${kpiId}/monthly`);
+      if (!response.ok) return;
+      const result = await response.json();
+      const monthlyData: MonthlyKPIData[] = result.monthlyData;
+
+      set(state => ({
+        data: {
+          ...state.data,
+          kpis: state.data.kpis.map(k => {
+            if (k.id !== kpiId) return k;
+            const lowerBetter = isLowerBetter(k.unit, k.code);
+            return {
+              ...k,
+              monthlyData,
+              health: deriveHealth(monthlyData, undefined, lowerBetter),
+              trend: deriveTrend(monthlyData, lowerBetter),
+              currentValue: getCurrentValue(monthlyData),
+            };
+          }),
+        },
+      }));
+    } catch (error) {
+      console.error('Error refreshing KPI monthly data:', error);
+    }
   },
 }));

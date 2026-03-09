@@ -86,7 +86,7 @@ export const relationships: Relationship[] = [
   { sourceId: 'ao-3', sourceType: 'ao', targetId: 'init-6', targetType: 'initiative', strength: 'secondary' },
   { sourceId: 'ao-4', sourceType: 'ao', targetId: 'init-1', targetType: 'initiative', strength: 'secondary' },
   { sourceId: 'ao-5', sourceType: 'ao', targetId: 'init-4', targetType: 'initiative', strength: 'primary' },
-  
+  { sourceId: 'init-6', sourceType: 'initiative', targetId: 'kpi-7', targetType: 'kpi', strength: 'secondary' },
   // Initiative to KPI relationships
   { sourceId: 'init-1', sourceType: 'initiative', targetId: 'kpi-1', targetType: 'kpi', strength: 'primary' },
   { sourceId: 'init-1', sourceType: 'initiative', targetId: 'kpi-4', targetType: 'kpi', strength: 'secondary' },
@@ -98,7 +98,6 @@ export const relationships: Relationship[] = [
   { sourceId: 'init-4', sourceType: 'initiative', targetId: 'kpi-3', targetType: 'kpi', strength: 'secondary' },
   { sourceId: 'init-5', sourceType: 'initiative', targetId: 'kpi-4', targetType: 'kpi', strength: 'secondary' },
   { sourceId: 'init-6', sourceType: 'initiative', targetId: 'kpi-2', targetType: 'kpi', strength: 'secondary' },
-  { sourceId: 'init-6', sourceType: 'initiative', targetId: 'kpi-7', targetType: 'kpi', strength: 'secondary' },
 ];
 
 export const xMatrixData: XMatrixData = {
