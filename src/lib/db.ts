@@ -751,24 +751,49 @@ export function deleteRelationship(xmatrixId: string, sourceId: string, targetId
 
 export function syncRelationships(xmatrixId: string, relationships: Relationship[]): void {
   const db = getDatabase();
-  const deleteAll = db.prepare('DELETE FROM relationships WHERE xmatrix_id = ?');
+  
+  // Validate relationships array
+  if (!Array.isArray(relationships)) {
+    throw new Error('Relationships must be an array');
+  }
+  
+  const deleteAll = db.prepare('DELETE FROM relationships WHERE xmatrix_id = ?'); 
   const insert = db.prepare(`
     INSERT INTO relationships (xmatrix_id, source_id, source_type, target_id, target_type, strength)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  const syncTransaction = db.transaction(() => {
+  const syncTransaction = db.transaction(() => {  //db.transaction() returns a function that, when called, will execute the provided function within a database transaction. This means that all operations performed inside the function will either succeed together or fail together, ensuring data integrity. In this case, we are using it to first delete all existing relationships for the given xmatrixId and then insert the new set of relationships. If any part of this process fails (e.g., due to a database error), the entire transaction will be rolled back, preventing partial updates to the relationships data.
     deleteAll.run(xmatrixId);
     for (const rel of relationships) {
+      if (!rel || !rel.sourceId || !rel.targetId) { 
+        console.warn('Skipping invalid relationship:', rel);
+        continue;
+      }
       insert.run(xmatrixId, rel.sourceId, rel.sourceType, rel.targetId, rel.targetType, rel.strength);
     }
   });
 
-  syncTransaction();
+  try {
+    syncTransaction();
+  } catch (error) {
+    console.error('Error syncing relationships:', error, { xmatrixId, relationshipCount: relationships.length });
+    throw error;
+  }
 }
 
 export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original: XMatrixData): void {
   const db = getDatabase();
+
+  // Validate required data
+  if (!draft || !original) {
+    throw new Error('Draft and original data are required');
+  }
+
+  // Ensure relationships array exists
+  if (!Array.isArray(draft.relationships)) {
+    draft.relationships = [];
+  }
 
   // Generic diff helper
   function diff<T extends { id: string }>(orig: T[], draftArr: T[]) {
@@ -788,18 +813,19 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
   }
 
   const syncTransaction = db.transaction(() => {
-    // --- Long-Term Objectives ---
-    const ltoDiff = diff(original.longTermObjectives, draft.longTermObjectives);
-    const ltoInsert = db.prepare('INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    const ltoUpdate = db.prepare('UPDATE long_term_objectives SET code=?, title=?, description=?, timeframe=?, health=? WHERE id=?');
-    const ltoDelete = db.prepare('DELETE FROM long_term_objectives WHERE id=?');
-    const ltoRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
-    for (const e of ltoDiff.added) ltoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.timeframe, e.health);
-    for (const e of ltoDiff.updated) ltoUpdate.run(e.code, e.title, e.description, e.timeframe, e.health, e.id);
-    for (const e of ltoDiff.deleted) {
-      ltoRelDelete.run(e.id, e.id);
-      ltoDelete.run(e.id);
-    }
+    try {
+      // --- Long-Term Objectives ---
+      const ltoDiff = diff(original.longTermObjectives, draft.longTermObjectives);
+      const ltoInsert = db.prepare('INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      const ltoUpdate = db.prepare('UPDATE long_term_objectives SET code=?, title=?, description=?, timeframe=?, health=? WHERE id=?');
+      const ltoDelete = db.prepare('DELETE FROM long_term_objectives WHERE id=?');
+      const ltoRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
+      for (const e of ltoDiff.added) ltoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.timeframe, e.health);
+      for (const e of ltoDiff.updated) ltoUpdate.run(e.code, e.title, e.description, e.timeframe, e.health, e.id);
+      for (const e of ltoDiff.deleted) {
+        ltoRelDelete.run(e.id, e.id);
+        ltoDelete.run(e.id);
+      }
 
     // --- Annual Objectives ---
     const aoDiff = diff(original.annualObjectives, draft.annualObjectives);
@@ -869,9 +895,18 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
     // --- XMatrix metadata ---
     const metaUpdate = db.prepare('UPDATE xmatrix SET name=?, vision=?, true_north=?, period_start=?, period_end=?, themes=? WHERE id=?');
     metaUpdate.run(draft.name, draft.vision, draft.trueNorth, draft.periodStart, draft.periodEnd, JSON.stringify(draft.themes), xmatrixId);
+    } catch (txnError) {
+      console.error('Transaction error details:', txnError);
+      throw txnError;
+    }
   });
 
-  syncTransaction();
+  try {
+    syncTransaction();
+  } catch (error) {
+    console.error('Failed to sync entities:', error);
+    throw error;
+  }
 }
 
 // ============ Utility Functions ============
@@ -880,7 +915,7 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
  * Find all orphaned relationships (relationships referencing deleted entities)
  * Returns array of relationship IDs that should be deleted
  */
-export function findOrphanedRelationships(xmatrixId: string): Array<{
+export function findOrphanedRelationships(xmatrixId: string): Array<{ 
   id: number;
   sourceId: string;
   sourceMissing: boolean;

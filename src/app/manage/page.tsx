@@ -755,8 +755,6 @@ export default function ManagePage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [cleanupLoading, setCleanupLoading] = useState(false);
-    const [cleanupResult, setCleanupResult] = useState<{ deletedCount: number; orphanedCount?: number; orphaned: any[] } | null>(null);
 
     // Modal state
     const [modalType, setModalType] = useState<EntityType | null>(null);
@@ -1056,39 +1054,6 @@ export default function ManagePage() {
         setEditingItem(null);
     };
 
-    const handleCheckOrphaned = async () => {
-        if (!data) return;
-        setCleanupLoading(true);
-        try {
-            const response = await fetch(`/api/cleanup?xmatrixId=${data.id}`);
-            const result = await response.json();
-            setCleanupResult({ deletedCount: 0, ...result });
-        } catch (err) {
-            console.error('Error checking orphaned relationships:', err);
-            alert('Failed to check for orphaned relationships');
-        } finally {
-            setCleanupLoading(false);
-        }
-    };
-
-    const handleCleanupOrphaned = async () => {
-        if (!data) return;
-        if (!confirm('This will permanently delete all orphaned relationships. Continue?')) return;
-        
-        setCleanupLoading(true);
-        try {
-            const response = await fetch(`/api/cleanup?xmatrixId=${data.id}`, { method: 'DELETE' });
-            const result = await response.json();
-            setCleanupResult({ ...result, orphaned: cleanupResult?.orphaned || [] });
-            await fetchData();
-        } catch (err) {
-            console.error('Error cleaning up orphaned relationships:', err);
-            alert('Failed to clean up orphaned relationships');
-        } finally {
-            setCleanupLoading(false);
-        }
-    };
-
     const tabs = [
         { id: 'lto' as EntityType, label: 'Long-Term Objectives', icon: Target },
         { id: 'ao' as EntityType, label: 'Annual Objectives', icon: Calendar },
@@ -1126,46 +1091,7 @@ export default function ManagePage() {
                     <p className="text-slate-400">Create and manage your objectives, initiatives, KPIs, and team members.</p>
                 </div>
 
-                {/* Database Cleanup Section */}
-                <div className="mb-8 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="font-semibold text-white mb-1">Database Cleanup</h3>
-                            <p className="text-sm text-slate-400">Check and remove orphaned relationships that reference deleted entities.</p>
-                            {cleanupResult && (
-                                <div className="mt-2 text-sm">
-                                    {cleanupResult.deletedCount > 0 ? (
-                                        <p className="text-green-400">✓ Deleted {cleanupResult.deletedCount} orphaned relationships</p>
-                                    ) : cleanupResult.orphanedCount === 0 ? (
-                                        <p className="text-green-400">✓ No orphaned relationships found</p>
-                                    ) : (
-                                        <p className="text-amber-400">Found {cleanupResult.orphanedCount} orphaned relationships</p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={handleCheckOrphaned}
-                                disabled={cleanupLoading}
-                                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {cleanupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                                Check
-                            </button>
-                            {cleanupResult && (cleanupResult.orphanedCount ?? 0) > 0 && (
-                                <button
-                                    onClick={handleCleanupOrphaned}
-                                    disabled={cleanupLoading}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-                                >
-                                    {cleanupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                                    Cleanup
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                
 
                 {/* Tabs */}
                 <div className="flex gap-2 mb-6 border-b border-slate-800 pb-4 overflow-x-auto">

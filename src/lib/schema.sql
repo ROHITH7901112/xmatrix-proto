@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS relationships (
   target_type TEXT CHECK(target_type IN ('lto', 'ao', 'initiative', 'kpi', 'owner')),
   strength TEXT CHECK(strength IN ('none', 'primary', 'secondary')),
   FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE,
-  UNIQUE(xmatrix_id, source_id, target_id) //
+  UNIQUE(xmatrix_id, source_id, target_id)
 );
 
 -- Create indexes for better query performance

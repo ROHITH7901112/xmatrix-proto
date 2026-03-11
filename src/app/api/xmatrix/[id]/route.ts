@@ -91,16 +91,29 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             );
         }
 
-        // Atomic bulk sync: diffs entities + replaces relationships in one transaction
-        bulkSyncEntities(id, draft, original);
+        try {
+            // Atomic bulk sync: diffs entities + replaces relationships in one transaction
+            bulkSyncEntities(id, draft, original);
+        } catch (dbError) {
+            const errorMsg = dbError instanceof Error ? dbError.message : String(dbError);
+            console.error('Database sync error details:', errorMsg);
+            throw new Error(`Database error: ${errorMsg}`);
+        }
 
         // Return freshly-read authoritative state from DB
         const saved = getXMatrixById(id);
+        if (!saved) {
+            return NextResponse.json(
+                { error: 'Failed to retrieve saved data after sync' },
+                { status: 500 }
+            );
+        }
         return NextResponse.json(saved);
     } catch (error) {
         console.error('Error syncing XMatrix:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to sync XMatrix changes';
         return NextResponse.json(
-            { error: 'Failed to sync XMatrix changes' },
+            { error: errorMessage },
             { status: 500 }
         );
     }
