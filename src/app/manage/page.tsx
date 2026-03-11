@@ -1091,6 +1091,8 @@ export default function ManagePage() {
                     <p className="text-slate-400">Create and manage your objectives, initiatives, KPIs, and team members.</p>
                 </div>
 
+                
+
                 {/* Tabs */}
                 <div className="flex gap-2 mb-6 border-b border-slate-800 pb-4 overflow-x-auto">
                     {tabs.map((tab) => {

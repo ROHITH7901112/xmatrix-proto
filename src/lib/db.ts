@@ -234,6 +234,8 @@ export function updateOwner(id: string, data: Partial<Owner>): Owner | null {
 
 export function deleteOwner(id: string): boolean {
   const db = getDatabase();
+  // Delete all relationships referencing this owner (both source and target)
+  db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?').run(id, id);
   const result = db.prepare('DELETE FROM owners WHERE id = ?').run(id);
   return result.changes > 0;
 }
@@ -319,7 +321,9 @@ export function updateLongTermObjective(id: string, data: Partial<LongTermObject
 
 export function deleteLongTermObjective(id: string): boolean {
   const db = getDatabase();
-  const result = db.prepare('DELETE FROM long_term_objectives WHERE id = ?').run(id); 
+  // Delete all relationships referencing this objective (both source and target)
+  db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?').run(id, id);
+  const result = db.prepare('DELETE FROM long_term_objectives WHERE id = ?').run(id);
   return result.changes > 0;
 }
 
@@ -409,6 +413,8 @@ export function updateAnnualObjective(id: string, data: Partial<AnnualObjective>
 
 export function deleteAnnualObjective(id: string): boolean {
   const db = getDatabase();
+  // Delete all relationships referencing this objective (both source and target)
+  db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?').run(id, id);
   const result = db.prepare('DELETE FROM annual_objectives WHERE id = ?').run(id);
   return result.changes > 0;
 }
@@ -504,6 +510,8 @@ export function updateInitiative(id: string, data: Partial<Initiative>): Initiat
 
 export function deleteInitiative(id: string): boolean {
   const db = getDatabase();
+  // Delete all relationships referencing this initiative (both source and target)
+  db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?').run(id, id);
   const result = db.prepare('DELETE FROM initiatives WHERE id = ?').run(id);
   return result.changes > 0;
 }
@@ -648,6 +656,8 @@ export function updateKPI(id: string, data: Partial<KPI>): KPI | null {
 
 export function deleteKPI(id: string): boolean {
   const db = getDatabase();
+  // Delete all relationships referencing this KPI (both source and target)
+  db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?').run(id, id);
   // Monthly data will be cascade deleted
   const result = db.prepare('DELETE FROM kpis WHERE id = ?').run(id);
   return result.changes > 0;
@@ -741,24 +751,49 @@ export function deleteRelationship(xmatrixId: string, sourceId: string, targetId
 
 export function syncRelationships(xmatrixId: string, relationships: Relationship[]): void {
   const db = getDatabase();
-  const deleteAll = db.prepare('DELETE FROM relationships WHERE xmatrix_id = ?');
+  
+  // Validate relationships array
+  if (!Array.isArray(relationships)) {
+    throw new Error('Relationships must be an array');
+  }
+  
+  const deleteAll = db.prepare('DELETE FROM relationships WHERE xmatrix_id = ?'); 
   const insert = db.prepare(`
     INSERT INTO relationships (xmatrix_id, source_id, source_type, target_id, target_type, strength)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  const syncTransaction = db.transaction(() => {
+  const syncTransaction = db.transaction(() => {  //db.transaction() returns a function that, when called, will execute the provided function within a database transaction. This means that all operations performed inside the function will either succeed together or fail together, ensuring data integrity. In this case, we are using it to first delete all existing relationships for the given xmatrixId and then insert the new set of relationships. If any part of this process fails (e.g., due to a database error), the entire transaction will be rolled back, preventing partial updates to the relationships data.
     deleteAll.run(xmatrixId);
     for (const rel of relationships) {
+      if (!rel || !rel.sourceId || !rel.targetId) { 
+        console.warn('Skipping invalid relationship:', rel);
+        continue;
+      }
       insert.run(xmatrixId, rel.sourceId, rel.sourceType, rel.targetId, rel.targetType, rel.strength);
     }
   });
 
-  syncTransaction();
+  try {
+    syncTransaction();
+  } catch (error) {
+    console.error('Error syncing relationships:', error, { xmatrixId, relationshipCount: relationships.length });
+    throw error;
+  }
 }
 
 export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original: XMatrixData): void {
   const db = getDatabase();
+
+  // Validate required data
+  if (!draft || !original) {
+    throw new Error('Draft and original data are required');
+  }
+
+  // Ensure relationships array exists
+  if (!Array.isArray(draft.relationships)) {
+    draft.relationships = [];
+  }
 
   // Generic diff helper
   function diff<T extends { id: string }>(orig: T[], draftArr: T[]) {
@@ -778,38 +813,52 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
   }
 
   const syncTransaction = db.transaction(() => {
-    // --- Long-Term Objectives ---
-    const ltoDiff = diff(original.longTermObjectives, draft.longTermObjectives);
-    const ltoInsert = db.prepare('INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    const ltoUpdate = db.prepare('UPDATE long_term_objectives SET code=?, title=?, description=?, timeframe=?, health=? WHERE id=?');
-    const ltoDelete = db.prepare('DELETE FROM long_term_objectives WHERE id=?');
-    for (const e of ltoDiff.added) ltoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.timeframe, e.health);
-    for (const e of ltoDiff.updated) ltoUpdate.run(e.code, e.title, e.description, e.timeframe, e.health, e.id);
-    for (const e of ltoDiff.deleted) ltoDelete.run(e.id);
+    try {
+      // --- Long-Term Objectives ---
+      const ltoDiff = diff(original.longTermObjectives, draft.longTermObjectives);
+      const ltoInsert = db.prepare('INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      const ltoUpdate = db.prepare('UPDATE long_term_objectives SET code=?, title=?, description=?, timeframe=?, health=? WHERE id=?');
+      const ltoDelete = db.prepare('DELETE FROM long_term_objectives WHERE id=?');
+      const ltoRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
+      for (const e of ltoDiff.added) ltoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.timeframe, e.health);
+      for (const e of ltoDiff.updated) ltoUpdate.run(e.code, e.title, e.description, e.timeframe, e.health, e.id);
+      for (const e of ltoDiff.deleted) {
+        ltoRelDelete.run(e.id, e.id);
+        ltoDelete.run(e.id);
+      }
 
     // --- Annual Objectives ---
     const aoDiff = diff(original.annualObjectives, draft.annualObjectives);
     const aoInsert = db.prepare('INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     const aoUpdate = db.prepare('UPDATE annual_objectives SET code=?, title=?, description=?, year=?, health=?, progress=? WHERE id=?');
     const aoDelete = db.prepare('DELETE FROM annual_objectives WHERE id=?');
+    const aoRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
     for (const e of aoDiff.added) aoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.year, e.health, e.progress);
     for (const e of aoDiff.updated) aoUpdate.run(e.code, e.title, e.description, e.year, e.health, e.progress, e.id);
-    for (const e of aoDiff.deleted) aoDelete.run(e.id);
+    for (const e of aoDiff.deleted) {
+      aoRelDelete.run(e.id, e.id);
+      aoDelete.run(e.id);
+    }
 
     // --- Initiatives ---
     const initDiff = diff(original.initiatives, draft.initiatives);
     const initInsert = db.prepare('INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const initUpdate = db.prepare('UPDATE initiatives SET code=?, title=?, description=?, priority=?, health=?, start_date=?, end_date=? WHERE id=?');
     const initDelete = db.prepare('DELETE FROM initiatives WHERE id=?');
+    const initRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
     for (const e of initDiff.added) initInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate);
     for (const e of initDiff.updated) initUpdate.run(e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate, e.id);
-    for (const e of initDiff.deleted) initDelete.run(e.id);
+    for (const e of initDiff.deleted) {
+      initRelDelete.run(e.id, e.id);
+      initDelete.run(e.id);
+    }
 
     // --- KPIs ---
     const kpiDiff = diff(original.kpis, draft.kpis);
     const kpiInsert = db.prepare('INSERT INTO kpis (id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids, start_date, end_date, target_distribution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const kpiUpdate = db.prepare('UPDATE kpis SET code=?, title=?, unit=?, current_value=?, target_value=?, health=?, trend=?, owner_ids=?, start_date=?, end_date=?, target_distribution=? WHERE id=?');
     const kpiDelete = db.prepare('DELETE FROM kpis WHERE id=?');
+    const kpiRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
     const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance) VALUES (?, ?, ?, ?, ?)');
     const monthlyDeleteByKpi = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id=?');
     for (const e of kpiDiff.added) {
@@ -822,16 +871,23 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
       monthlyDeleteByKpi.run(e.id);
       if (e.monthlyData) for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
     }
-    for (const e of kpiDiff.deleted) kpiDelete.run(e.id);
+    for (const e of kpiDiff.deleted) {
+      kpiRelDelete.run(e.id, e.id);
+      kpiDelete.run(e.id);
+    }
 
     // --- Owners ---
     const ownerDiff = diff(original.owners, draft.owners);
     const ownerInsert = db.prepare('INSERT INTO owners (id, xmatrix_id, name, role, avatar, initials, responsibility_type) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const ownerUpdate = db.prepare('UPDATE owners SET name=?, role=?, avatar=?, initials=?, responsibility_type=? WHERE id=?');
     const ownerDelete = db.prepare('DELETE FROM owners WHERE id=?');
+    const ownerRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
     for (const e of ownerDiff.added) ownerInsert.run(e.id, xmatrixId, e.name, e.role, e.avatar, e.initials, e.responsibilityType);
     for (const e of ownerDiff.updated) ownerUpdate.run(e.name, e.role, e.avatar, e.initials, e.responsibilityType, e.id);
-    for (const e of ownerDiff.deleted) ownerDelete.run(e.id);
+    for (const e of ownerDiff.deleted) {
+      ownerRelDelete.run(e.id, e.id);
+      ownerDelete.run(e.id);
+    }
 
     // --- Relationships (full replace) ---
     syncRelationships(xmatrixId, draft.relationships);
@@ -839,12 +895,112 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
     // --- XMatrix metadata ---
     const metaUpdate = db.prepare('UPDATE xmatrix SET name=?, vision=?, true_north=?, period_start=?, period_end=?, themes=? WHERE id=?');
     metaUpdate.run(draft.name, draft.vision, draft.trueNorth, draft.periodStart, draft.periodEnd, JSON.stringify(draft.themes), xmatrixId);
+    } catch (txnError) {
+      console.error('Transaction error details:', txnError);
+      throw txnError;
+    }
   });
 
-  syncTransaction();
+  try {
+    syncTransaction();
+  } catch (error) {
+    console.error('Failed to sync entities:', error);
+    throw error;
+  }
 }
 
 // ============ Utility Functions ============
+
+/**
+ * Find all orphaned relationships (relationships referencing deleted entities)
+ * Returns array of relationship IDs that should be deleted
+ */
+export function findOrphanedRelationships(xmatrixId: string): Array<{ 
+  id: number;
+  sourceId: string;
+  sourceMissing: boolean;
+  targetId: string;
+  targetMissing: boolean;
+}> {
+  const db = getDatabase();
+  
+  // Get all relationships for this xmatrix
+  const relationships = db.prepare('SELECT id, source_id, source_type, target_id, target_type FROM relationships WHERE xmatrix_id = ?').all(xmatrixId) as Array<{
+    id: number;
+    source_id: string;
+    source_type: string;
+    target_id: string;
+    target_type: string;
+  }>;
+  
+  const orphaned: Array<{
+    id: number;
+    sourceId: string;
+    sourceMissing: boolean;
+    targetId: string;
+    targetMissing: boolean;
+  }> = [];
+  
+  for (const rel of relationships) {
+    const tableName = rel.source_type === 'lto' ? 'long_term_objectives' :
+                      rel.source_type === 'ao' ? 'annual_objectives' :
+                      rel.source_type === 'initiative' ? 'initiatives' :
+                      rel.source_type === 'kpi' ? 'kpis' :
+                      rel.source_type === 'owner' ? 'owners' : null;
+    
+    const targetTableName = rel.target_type === 'lto' ? 'long_term_objectives' :
+                            rel.target_type === 'ao' ? 'annual_objectives' :
+                            rel.target_type === 'initiative' ? 'initiatives' :
+                            rel.target_type === 'kpi' ? 'kpis' :
+                            rel.target_type === 'owner' ? 'owners' : null;
+    
+    let sourceMissing = false;
+    let targetMissing = false;
+    
+    if (tableName) {
+      const source = db.prepare(`SELECT id FROM ${tableName} WHERE id = ?`).get(rel.source_id);
+      sourceMissing = !source;
+    }
+    
+    if (targetTableName) {
+      const target = db.prepare(`SELECT id FROM ${targetTableName} WHERE id = ?`).get(rel.target_id);
+      targetMissing = !target;
+    }
+    
+    if (sourceMissing || targetMissing) {
+      orphaned.push({
+        id: rel.id,
+        sourceId: rel.source_id,
+        sourceMissing,
+        targetId: rel.target_id,
+        targetMissing,
+      });
+    }
+  }
+  
+  return orphaned;
+}
+
+/**
+ * Clean up all orphaned relationships for a given xmatrix
+ * Returns number of relationships deleted
+ */
+export function cleanupOrphanedRelationships(xmatrixId: string): number {
+  const db = getDatabase();
+  const orphaned = findOrphanedRelationships(xmatrixId);
+  
+  if (orphaned.length === 0) return 0;
+  
+  const deleteStmt = db.prepare('DELETE FROM relationships WHERE id = ?');
+  let count = 0;
+  
+  for (const rel of orphaned) {
+    const result = deleteStmt.run(rel.id);
+    if (result.changes > 0) count++;
+  }
+  
+  return count;
+}
 
 export function closeDatabase(): void {
   if (db) {
