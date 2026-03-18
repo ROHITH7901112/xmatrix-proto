@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Save, Loader2, Trash2 } from 'lucide-react';
 import { LongTermObjective, AnnualObjective, Initiative, KPI, Owner, HealthStatus, ResponsibilityType, Trend, TargetDistribution, KPI_UNITS } from '@/lib/types';
 import { generateId, cn } from '@/lib/utils';
+import { deriveHealth, deriveTrend, getCurrentValue, isLowerBetter } from '@/lib/kpi-calculations';
 
 // Helper function to calculate next sequential code
 function getNextCode(existingCodes: string[], prefix: string): string {
@@ -330,6 +331,7 @@ function computeDistributedTargets(
   startDate: string,
   endDate: string,
   distribution: TargetDistribution,
+  currentValue: number = 0,
 ): MonthlyKPIData[] {
   if (!startDate || !endDate) {
     // No dates set — all months get equal share
@@ -367,28 +369,63 @@ function computeDistributedTargets(
       weights = activeIndices.map((_, idx) => n - idx);
       break;
     }
-    case 'back-loaded': {
-      // Same as linear — heavier on later months
-      weights = activeIndices.map((_, idx) => idx + 1);
-      break;
-    }
     case 'equal':
     default:
       weights = activeIndices.map(() => 1);
   }
 
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  const targets = weights.map(w => Math.round((totalTarget * w / totalWeight) * 100) / 100);
+  // Split active months into past (already happened) and future (from today onwards)
+  // Past months: get targets based on their share of the TOTAL target (for reference)
+  //              actuals are left null — user enters them manually
+  // Future months: only carry the REMAINING target (totalTarget - currentValue)
+  const now = new Date();
+  const currentMonthIdx = now.getMonth(); // 0=Jan, 1=Feb, ... 11=Dec
 
-  // Fix rounding residual on last active month
-  const diff = totalTarget - targets.reduce((a, b) => a + b, 0);
-  targets[targets.length - 1] = Math.round((targets[targets.length - 1] + diff) * 100) / 100;
+  const pastActiveIndices = activeIndices.filter(idx => idx < currentMonthIdx);
+  const futureActiveIndices = activeIndices.filter(idx => idx >= currentMonthIdx);
 
-  const targetMap = new Map<number, number>(activeIndices.map((mi, i) => [mi, targets[i]]));
+  const remainingTarget = Math.max(0, totalTarget - currentValue);
+
+  // Weights for future months only (to distribute remaining target)
+  const futureWeights = futureActiveIndices.map((_, i) => {
+    const posInAll = activeIndices.indexOf(futureActiveIndices[i]);
+    if (distribution === 'linear') return posInAll + 1;
+    if (distribution === 'front-loaded') return n - posInAll;
+    return 1;
+  });
+  const futureTotalWeight = futureWeights.reduce((a, b) => a + b, 0) || 1;
+  const futureTargets = futureWeights.map(w =>
+    Math.round((remainingTarget * w / futureTotalWeight) * 100) / 100
+  );
+  // Fix rounding residual on last future month
+  const futureDiff = remainingTarget - futureTargets.reduce((a, b) => a + b, 0);
+  if (futureTargets.length > 0) {
+    futureTargets[futureTargets.length - 1] = Math.round((futureTargets[futureTargets.length - 1] + futureDiff) * 100) / 100;
+  }
+
+  // Weights for past months (their share of TOTAL target, for reference targets)
+  const pastWeights = pastActiveIndices.map((_, i) => {
+    const posInAll = activeIndices.indexOf(pastActiveIndices[i]);
+    if (distribution === 'linear') return posInAll + 1;
+    if (distribution === 'front-loaded') return n - posInAll;
+    return 1;
+  });
+  const pastTotalWeight = pastWeights.reduce((a, b) => a + b, 0) || 1;
+  // Past month targets = their share of totalTarget (reference only, actuals entered manually)
+  const pastTargets = pastWeights.map(w =>
+    Math.round((totalTarget * w / (pastTotalWeight + futureTotalWeight)) * 100) / 100
+  );
+
+  // Build target map
+  const targetMap = new Map<number, number>();
+  pastActiveIndices.forEach((mi, i) => targetMap.set(mi, pastTargets[i] ?? 0));
+  futureActiveIndices.forEach((mi, i) => targetMap.set(mi, futureTargets[i] ?? 0));
+
+  // Actuals: past months are left null for manual entry
   return ALL_MONTHS.map((month, idx) => ({
     month,
     target: targetMap.get(idx) ?? 0,
-    actual: null,
+    actual: null, // Always null — user enters actuals manually in the Bowling Chart
     variance: null,
   }));
 }
@@ -446,18 +483,31 @@ export function KPIForm({
         formData.startDate || '',
         formData.endDate || '',
         formData.targetDistribution || 'equal',
+        formData.currentValue,
     );
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        const monthlyData = computeDistributedTargets(
+            formData.targetValue,
+            formData.startDate || '',
+            formData.endDate || '',
+            formData.targetDistribution || 'equal',
+            formData.currentValue,
+        );
+        
+        // Calculate health and trend automatically from monthly data
+        const lowerBetter = isLowerBetter(formData.unit, formData.code);
+        const calculatedHealth = deriveHealth(monthlyData, undefined, lowerBetter, formData.targetValue);
+        const calculatedTrend = deriveTrend(monthlyData, lowerBetter);
+        const calculatedCurrentValue = getCurrentValue(monthlyData);
+        
         const kpiWithMonthly: KPI = {
             ...formData,
-            monthlyData: computeDistributedTargets(
-                formData.targetValue,
-                formData.startDate || '',
-                formData.endDate || '',
-                formData.targetDistribution || 'equal',
-            ),
+            monthlyData,
+            health: calculatedHealth,
+            trend: calculatedTrend,
+            currentValue: calculatedCurrentValue,
         };
         onSubmit(kpiWithMonthly);
     };
@@ -611,7 +661,6 @@ export function KPIForm({
                     { value: 'equal', label: 'Equal — same target every active month' },
                     { value: 'linear', label: 'Linear ramp-up — increases each month' },
                     { value: 'front-loaded', label: 'Front-loaded — higher target in early months' },
-                    { value: 'back-loaded', label: 'Back-loaded — higher target in later months' },
                 ]}
             />
 
@@ -632,28 +681,9 @@ export function KPIForm({
                 </div>
             </div>
 
-            {/* Status + Trend */}
-            <div className="grid grid-cols-2 gap-4">
-                <FormSelect
-                    label="Status"
-                    value={formData.health}
-                    onChange={(e) => setFormData({ ...formData, health: e.target.value as HealthStatus })}
-                    options={[
-                        { value: 'on-track', label: 'On Track' },
-                        { value: 'at-risk', label: 'At Risk' },
-                        { value: 'off-track', label: 'Off Track' },
-                    ]}
-                />
-                <FormSelect
-                    label="Trend"
-                    value={formData.trend}
-                    onChange={(e) => setFormData({ ...formData, trend: e.target.value as Trend })}
-                    options={[
-                        { value: 'up', label: 'Trending Up' },
-                        { value: 'down', label: 'Trending Down' },
-                        { value: 'stable', label: 'Stable' },
-                    ]}
-                />
+            {/* Status + Trend (Auto-calculated from monthly data) */}
+            <div className="rounded-lg border border-slate-700 px-3 py-2 bg-slate-800/50">
+                <p className="text-xs text-slate-400 mb-2">Status &amp; Trend will be calculated automatically from the monthly data in the Bowling Chart.</p>
             </div>
 
             {/* Actions */}

@@ -45,6 +45,49 @@ interface SortState {
 }
 
 // ============================================================================
+// BOWLING CHART COLOR & INDICATOR SYSTEM
+// ============================================================================
+// 
+// KPI HEALTH STATUS (Status Column):
+// ——————————————————————————————————
+// ● ON-TRACK (Green):   Variance % ≥ 0%        | Actual ≥ Target
+// ◐ AT-RISK  (Yellow):  -5% ≤ Variance % < 0%  | Target at risk but salvageable
+// ○ OFF-TRACK (Red):    Variance % < -5%       | Significantly below target
+//
+// NOTE: Health is evaluated on the CURRENT MONTH if it has data, otherwise falls back
+//       to the most recent month with actual values. This prevents false red statuses
+//       for KPIs that started mid-year but have good cumulative progress.
+//
+// TREND INDICATOR (Trend Column):
+// ———————————————————————————————
+// ↑ UP:      Performance improving | Recent average > Earlier average
+// ↓ DOWN:    Performance declining | Recent average < Earlier average
+// — STABLE:  Flat performance      | Change < 1% of target (noise threshold)
+//
+// For "lower is better" metrics (days, costs), the direction flips:
+// Declining values (improvement) show UP trend.
+//
+// VARIANCE BAR (Below each month cell):
+// —————————————————————————————————————
+// Green bar (■):  Exceeds target      | Variance % ≥ 0%
+// Yellow bar (■): At-risk threshold   | -5% ≤ Variance % < 0%
+// Red bar (■):    Off-track threshold | Variance % < -5%
+// Width:          50% + variance_percent, clamped 5-95% (always visible)
+//
+// RETROACTIVE PROGRESS DISTRIBUTION (On KPI Creation):
+// ————————————————————————————————————————————————————
+// When creating a KPI with current value > 0, the progress is split retroactively
+// across all months from start date to current month, proportional to the target
+// distribution (equal, linear, or front-loaded). This reflects work already done.
+//
+// Example: KPI created in March with 10% progress and equal distribution (Jan-Dec):
+// - Jan: 5% actual (share of 10% progress)
+// - Feb: 5% actual (share of 10% progress)
+// - Mar onwards: 0% actual (future months, not yet started)
+//
+// ============================================================================
+
+// ============================================================================
 // MAIN BOWLING CHART
 // ============================================================================
 export function BowlingChart() {
@@ -449,7 +492,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
             <TrendIcon
               className={cn(
                 'w-4 h-4',
-                getTrendColor(kpi.trend, !lowerBetter)
+                getTrendColor(kpi.trend, true)
               )}
             />
           </div>
@@ -483,6 +526,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
               kpiId={kpi.id}
               monthData={monthData}
               unit={kpi.unit}
+              lowerBetter={lowerBetter}
               monthIndex={monthIndex}
               onSave={onUpdateMonthly}
             />
@@ -516,11 +560,12 @@ interface EditableMonthlyCellProps {
   kpiId: string;
   monthData: MonthlyKPIData;
   unit: string;
+  lowerBetter: boolean;
   monthIndex: number;
   onSave: (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
 }
 
-function EditableMonthlyCell({ kpiId, monthData, unit, monthIndex, onSave }: EditableMonthlyCellProps) {
+function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, monthIndex, onSave }: EditableMonthlyCellProps) {
   const [isEditingActual, setIsEditingActual] = useState(false);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -533,10 +578,9 @@ function EditableMonthlyCell({ kpiId, monthData, unit, monthIndex, onSave }: Edi
 
   const handleStartEditActual = useCallback((e: React.MouseEvent) => {
     e.stopPropagation(); // Don't trigger row click
-    if (isFuture) return; // Can't edit future months
     setEditValue(monthData.actual !== null ? String(monthData.actual) : '');
     setIsEditingActual(true);
-  }, [isFuture, monthData.actual]);
+  }, [monthData.actual]);
 
   const handleStartEditTarget = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -605,12 +649,15 @@ function EditableMonthlyCell({ kpiId, monthData, unit, monthIndex, onSave }: Edi
     }
   }, [handleSave]);
 
-  const getVarianceColor = (v: number | null) => {
-    if (v === null) return 'bg-slate-800 border-slate-800';
-    if (v >= 0) return 'bg-emerald-500/20 border-emerald-500/30';
-    if (v >= -5) return 'bg-yellow-500/20 border-yellow-500/30';
+  const getVarianceColor = (pct: number | null) => {
+    if (pct === null) return 'bg-slate-800 border-slate-800';
+    if (pct >= 0) return 'bg-emerald-500/20 border-emerald-500/30';
+    if (pct >= -5) return 'bg-yellow-500/20 border-yellow-500/30';
     return 'bg-red-500/20 border-red-500/30';
   };
+
+  const rawPct = computeVariancePercent(monthData.actual, monthData.target);
+  const effectivePct = rawPct === null ? null : (lowerBetter ? -rawPct : rawPct);
 
   // Editing state
   if (isEditingActual || isEditingTarget) {
@@ -644,13 +691,13 @@ function EditableMonthlyCell({ kpiId, monthData, unit, monthIndex, onSave }: Edi
     <div
       className={cn(
         'relative flex flex-col items-center p-1.5 rounded-md border transition-all min-h-[48px]',
-        isPast ? getVarianceColor(monthData.variance) : 'bg-slate-800/30 border-slate-800',
+        isPast ? getVarianceColor(effectivePct) : 'bg-slate-800/30 border-slate-800',
         isCurrent && 'ring-1 ring-blue-500/50',
-        isPast && 'cursor-pointer hover:ring-1 hover:ring-slate-500/50',
-        isFuture && 'opacity-50'
+        (isPast || isFuture) && 'cursor-pointer hover:ring-1 hover:ring-slate-500/50'
       )}
       suppressHydrationWarning
-      title={isPast ? 'Double-click actual to edit | Ctrl+click target to edit' : 'Future month — not editable yet'}
+      title="Double-click actual to edit | Ctrl+click target to edit"
+      onClick={(e) => e.stopPropagation()} // Prevent detail panel from opening when clicking monthly cell
     >
       {/* Target - Ctrl+Click to edit */}
       <div 
@@ -694,7 +741,7 @@ function EditableMonthlyCell({ kpiId, monthData, unit, monthIndex, onSave }: Edi
             suppressHydrationWarning
             className={cn(
               'h-full rounded-full transition-all',
-              monthData.variance >= 0 ? 'bg-emerald-500' : monthData.variance >= -5 ? 'bg-yellow-500' : 'bg-red-500'
+              effectivePct === null ? 'bg-slate-600' : effectivePct >= 0 ? 'bg-emerald-500' : effectivePct >= -5 ? 'bg-yellow-500' : 'bg-red-500'
             )}
             style={{
               // Use variance-% for width so bars are comparable across KPIs of different scales.
@@ -702,7 +749,7 @@ function EditableMonthlyCell({ kpiId, monthData, unit, monthIndex, onSave }: Edi
               width: `${
                 Math.min(
                   Math.max(
-                    50 + (computeVariancePercent(monthData.actual, monthData.target) ?? 0),
+                    50 + (effectivePct ?? 0),
                     5
                   ),
                   95
@@ -786,34 +833,40 @@ function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
             {/* Variance row */}
             <tr className="border-b border-slate-800/50">
               <td className="px-2 py-1.5 text-slate-400 font-medium">Δ Var</td>
-              {kpi.monthlyData.map((m) => (
-                <td
-                  key={m.month}
-                  className={cn(
-                    'px-2 py-1.5 text-center font-medium',
-                    m.variance === null ? 'text-slate-600' :
-                    m.variance >= 0 ? 'text-emerald-400' :
-                    m.variance >= -5 ? 'text-yellow-400' : 'text-red-400'
-                  )}
-                  suppressHydrationWarning
-                >
-                  {formatVariance(m.variance, kpi.unit)}
-                </td>
-              ))}
+              {kpi.monthlyData.map((m) => {
+                const pct = computeVariancePercent(m.actual, m.target);
+                const effectivePct = pct === null ? null : (lowerBetter ? -pct : pct);
+
+                return (
+                  <td
+                    key={m.month}
+                    className={cn(
+                      'px-2 py-1.5 text-center font-medium',
+                      effectivePct === null ? 'text-slate-600' :
+                      effectivePct >= 0 ? 'text-emerald-400' :
+                      effectivePct >= -5 ? 'text-yellow-400' : 'text-red-400'
+                    )}
+                    suppressHydrationWarning
+                  >
+                    {formatVariance(m.variance, kpi.unit)}
+                  </td>
+                );
+              })}
             </tr>
             {/* Variance % row */}
             <tr>
               <td className="px-2 py-1.5 text-slate-400 font-medium">Δ %</td>
               {kpi.monthlyData.map((m) => {
                 const pct = computeVariancePercent(m.actual, m.target);
+                const effectivePct = pct === null ? null : (lowerBetter ? -pct : pct);
                 return (
                   <td
                     key={m.month}
                     className={cn(
                       'px-2 py-1.5 text-center font-medium',
-                      pct === null ? 'text-slate-600' :
-                      pct >= 0 ? 'text-emerald-400' :
-                      pct >= -5 ? 'text-yellow-400' : 'text-red-400'
+                      effectivePct === null ? 'text-slate-600' :
+                      effectivePct >= 0 ? 'text-emerald-400' :
+                      effectivePct >= -5 ? 'text-yellow-400' : 'text-red-400'
                     )}
                     suppressHydrationWarning
                   >

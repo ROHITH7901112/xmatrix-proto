@@ -29,7 +29,7 @@ type HealthStatus = 'on-track' | 'at-risk' | 'off-track';
 type Priority = 'critical' | 'high' | 'medium' | 'low';
 type Trend = 'up' | 'down' | 'stable';
 type ResponsibilityType = 'accountable' | 'responsible' | 'consulted' | 'informed';
-type TargetDistribution = 'equal' | 'linear' | 'front-loaded' | 'back-loaded';
+type TargetDistribution = 'equal' | 'linear' | 'front-loaded';
 
 const KPI_UNITS = [
   { value: '%', label: '% — Percentage' },
@@ -511,7 +511,8 @@ function computeDistributedTargets(
     startDate: string,
     endDate: string,
     distribution: TargetDistribution,
-): { month: string; target: number; actual: null; variance: null }[] {
+    currentValue: number = 0,
+): { month: string; target: number; actual: number | null; variance: null }[] {
     if (!startDate || !endDate) {
         const perMonth = totalTarget / 12;
         return ALL_MONTHS_BC.map(month => ({ month, target: Math.round(perMonth * 100) / 100, actual: null, variance: null }));
@@ -532,18 +533,55 @@ function computeDistributedTargets(
     switch (distribution) {
         case 'linear': weights = activeIndices.map((_, idx) => idx + 1); break;
         case 'front-loaded': weights = activeIndices.map((_, idx) => n - idx); break;
-        case 'back-loaded': weights = activeIndices.map((_, idx) => idx + 1); break;
         default: weights = activeIndices.map(() => 1);
     }
     const totalWeight = weights.reduce((a, b) => a + b, 0);
-    const targets = weights.map(w => Math.round((totalTarget * w / totalWeight) * 100) / 100);
-    const diff = totalTarget - targets.reduce((a, b) => a + b, 0);
-    targets[targets.length - 1] = Math.round((targets[targets.length - 1] + diff) * 100) / 100;
-    const targetMap = new Map<number, number>(activeIndices.map((mi, i) => [mi, targets[i]]));
+    // Split active months into past (already happened) and future (from today onwards)
+    // Past months: get reference targets; actuals left null for manual entry
+    // Future months: only carry the REMAINING target (totalTarget - currentValue)
+    const now = new Date();
+    const currentMonthIdx = now.getMonth(); // 0=Jan, 1=Feb, ... 11=Dec
+
+    const pastActiveIndices = activeIndices.filter(idx => idx < currentMonthIdx);
+    const futureActiveIndices = activeIndices.filter(idx => idx >= currentMonthIdx);
+
+    const remainingTarget = Math.max(0, totalTarget - currentValue);
+
+    // Weights for future months (distribute remaining target)
+    const futureWeights = futureActiveIndices.map((_, i) => {
+      const posInAll = activeIndices.indexOf(futureActiveIndices[i]);
+      if (distribution === 'linear') return posInAll + 1;
+      if (distribution === 'front-loaded') return n - posInAll;
+      return 1;
+    });
+    const futureTotalWeight = futureWeights.reduce((a, b) => a + b, 0) || 1;
+    const futureTargets = futureWeights.map(w =>
+      Math.round((remainingTarget * w / futureTotalWeight) * 100) / 100
+    );
+    const futureDiff = remainingTarget - futureTargets.reduce((a, b) => a + b, 0);
+    if (futureTargets.length > 0) {
+      futureTargets[futureTargets.length - 1] = Math.round((futureTargets[futureTargets.length - 1] + futureDiff) * 100) / 100;
+    }
+
+    // Weights for past months (share of total target, reference only)
+    const pastWeightsArr = pastActiveIndices.map((_, i) => {
+      const posInAll = activeIndices.indexOf(pastActiveIndices[i]);
+      if (distribution === 'linear') return posInAll + 1;
+      if (distribution === 'front-loaded') return n - posInAll;
+      return 1;
+    });
+    const pastTotalWeight2 = pastWeightsArr.reduce((a, b) => a + b, 0) || 1;
+    const pastTargets = pastWeightsArr.map(w =>
+      Math.round((totalTarget * w / (pastTotalWeight2 + futureTotalWeight)) * 100) / 100
+    );
+
+    const targetMap = new Map<number, number>();
+    pastActiveIndices.forEach((mi, i) => targetMap.set(mi, pastTargets[i] ?? 0));
+    futureActiveIndices.forEach((mi, i) => targetMap.set(mi, futureTargets[i] ?? 0));
     return ALL_MONTHS_BC.map((month, idx) => ({
         month,
         target: targetMap.get(idx) ?? 0,
-        actual: null,
+        actual: null, // Always null — user enters actuals manually in the Bowling Chart
         variance: null,
     }));
 }
@@ -558,7 +596,7 @@ function KPIForm({
 }: {
     initialData?: KPI;
     existingItems?: KPI[];
-    onSubmit: (data: KPI & { monthlyData: { month: string; target: number; actual: null; variance: null }[] }) => void;
+    onSubmit: (data: KPI & { monthlyData: { month: string; target: number; actual: number | null; variance: null }[] }) => void;
     onCancel: () => void;
     isLoading: boolean;
 }) {
@@ -584,6 +622,7 @@ function KPIForm({
         formData.startDate || '',
         formData.endDate || '',
         formData.targetDistribution || 'equal',
+        formData.currentValue,
     );
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -595,6 +634,7 @@ function KPIForm({
                 formData.startDate || '',
                 formData.endDate || '',
                 formData.targetDistribution || 'equal',
+                formData.currentValue,
             ),
         });
     };
@@ -647,7 +687,6 @@ function KPIForm({
                     { value: 'equal', label: 'Equal — same target every active month' },
                     { value: 'linear', label: 'Linear ramp-up — increases each month' },
                     { value: 'front-loaded', label: 'Front-loaded — higher target in early months' },
-                    { value: 'back-loaded', label: 'Back-loaded — higher target in later months' },
                 ]}
             />
             {/* Monthly preview */}
@@ -946,7 +985,7 @@ export default function ManagePage() {
     };
 
     // CRUD handlers for KPI
-    const handleCreateKPI = async (kpi: KPI & { monthlyData?: { month: string; target: number; actual: null; variance: null }[] }) => {
+    const handleCreateKPI = async (kpi: KPI & { monthlyData?: { month: string; target: number; actual: number | null; variance: null }[] }) => {
         if (!data) return;
         setIsSaving(true);
         try {

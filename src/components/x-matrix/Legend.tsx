@@ -14,9 +14,9 @@ export function Legend() {
       <div className="flex items-center gap-3">
         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Status</span>
         <div className="flex items-center gap-2">
-          <LegendItem color="rgb(34, 197, 94)" label="Completed" />
-          <LegendItem color="rgb(250, 204, 21)" label="In Progress" />
-          <LegendItem color="rgb(239, 68, 68)" label="Delayed" />
+          <LegendItem color="rgb(34, 197, 94)" label="On Track" />
+          <LegendItem color="rgb(250, 204, 21)" label="At Risk" />
+          <LegendItem color="rgb(239, 68, 68)" label="Off Track" />
         </div>
       </div>
 

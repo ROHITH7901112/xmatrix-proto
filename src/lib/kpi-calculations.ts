@@ -40,30 +40,63 @@ const DEFAULT_THRESHOLDS: HealthThresholds = {
 };
 
 /**
- * Derive health from the most recent month that has an actual value.
- * Uses variance percentage thresholds.
- * Deterministic — same input always produces same output.
+ * Derive status from month-by-month execution quality.
+ *
+ * Rules implemented:
+ * - ON-TRACK (green): monthly targets are being met consistently.
+ * - AT-RISK (yellow): minor miss, short miss streak, or recent recovery after a miss.
+ * - OFF-TRACK (red): latest month is severely off target.
+ *
+ * "Middle-month miss then recovery" behavior:
+ * - If one month is missed and the following month recovers, status stays AT-RISK
+ *   for one cycle (warning), then returns ON-TRACK if stability continues.
  */
 export function deriveHealth(
   monthlyData: MonthlyKPIData[],
   thresholds: HealthThresholds = DEFAULT_THRESHOLDS,
-  lowerIsBetter: boolean = false
+  lowerIsBetter: boolean = false,
+  overallTargetValue?: number
 ): HealthStatus {
-  // Find the latest month with an actual value
-  const withActuals = monthlyData.filter(m => m.actual !== null);
-  if (withActuals.length === 0) return 'on-track'; // No data yet — assume ok
+  void overallTargetValue;
 
-  const latest = withActuals[withActuals.length - 1];
-  const variancePct = computeVariancePercent(latest.actual, latest.target);
+  // Evaluate only months with both target and actual values.
+  const evaluated = monthlyData
+    .filter(m => m.actual !== null && m.target > 0)
+    .map(m => {
+      const variancePct = computeVariancePercent(m.actual, m.target) ?? 0;
+      const effectiveVariance = lowerIsBetter ? -variancePct : variancePct;
+      return {
+        miss: effectiveVariance < thresholds.onTrackMin,
+        severeMiss: effectiveVariance < thresholds.atRiskMin,
+      };
+    });
 
-  if (variancePct === null) return 'on-track';
+  if (evaluated.length === 0) return 'on-track';
 
-  // For metrics where lower is better (e.g., "Time to Market" in days), flip sign
-  const effectiveVariance = lowerIsBetter ? -variancePct : variancePct;
+  // Current consecutive miss streak from latest month backwards.
+  let currentMissStreak = 0;
+  for (let i = evaluated.length - 1; i >= 0; i--) {
+    if (!evaluated[i].miss) break;
+    currentMissStreak += 1;
+  }
 
-  if (effectiveVariance >= thresholds.onTrackMin) return 'on-track';
-  if (effectiveVariance >= thresholds.atRiskMin) return 'at-risk';
-  return 'off-track';
+  const latest = evaluated[evaluated.length - 1];
+  const recentWindow = evaluated.slice(-3);
+  const hasRecentSevereMiss = recentWindow.some(m => m.severeMiss);
+
+  // One-month recovery watch: latest month met target, but previous month missed.
+  const recoveredAfterRecentMiss =
+    evaluated.length >= 2 && !evaluated[evaluated.length - 1].miss && evaluated[evaluated.length - 2].miss;
+
+  // Red: latest month is severely off-track.
+  if (latest.severeMiss) return 'off-track';
+
+  // Yellow: any active miss streak, recent severe miss, or immediate recovery watch.
+  if (currentMissStreak >= 1) return 'at-risk';
+  if (hasRecentSevereMiss) return 'at-risk';
+  if (recoveredAfterRecentMiss) return 'at-risk';
+
+  return 'on-track';
 }
 
 // ============ Trend Derivation ============
@@ -72,6 +105,22 @@ export function deriveHealth(
  * Derive trend from the last N months with actual values.
  * Uses simple slope: compare average of first half vs second half of recent actuals.
  * Deterministic — no randomness.
+ * 
+ * Trend Symbols:
+ * - UP (↑): Positive trajectory — performance improving month-over-month
+ *   For "higher is better" metrics: recent avg > earlier avg
+ *   For "lower is better" metrics: recent avg < earlier avg (lower is progress)
+ * - DOWN (↓): Negative trajectory — performance declining month-over-month
+ *   Opposite of UP
+ * - STABLE (—): Flat trajectory — change is below 1% of target (noise threshold)
+ *
+ * Example: If a KPI tracks 70, 72, 75, 78 over 4 months:
+ * - First half avg: (70 + 72) / 2 = 71
+ * - Second half avg: (75 + 78) / 2 = 76.5
+ * - Diff: 76.5 - 71 = 5.5, which is > 1% threshold → Trend is UP
+ *
+ * For "days" or other "lower is better" metrics, the direction flips:
+ * - Declining days (100, 95, 90) shows UP trend (improving performance)
  */
 export function deriveTrend(
   monthlyData: MonthlyKPIData[],
@@ -145,8 +194,6 @@ export function formatVariance(variance: number | null, unit: string): string {
 export function isLowerBetter(unit: string, code?: string): boolean {
   // Cost ratios, time-based metrics — lower is better
   if (unit === 'days') return true;
-  // Special case: cost ratio KPIs where lower % is better
-  if (code && (code === 'K-2' || code === 'K-6')) return true;
   return false;
 }
 
@@ -162,10 +209,11 @@ export function recomputeMonthlyData(monthlyData: MonthlyKPIData[]): MonthlyKPID
 }
 
 /**
- * Get current "actual" value from monthly data (latest month with actual).
+ * Get cumulative "actual" value from monthly data (sum of all non-null actuals).
+ * This represents the total recorded progress across all months with data.
  */
 export function getCurrentValue(monthlyData: MonthlyKPIData[]): number {
   const withActuals = monthlyData.filter(m => m.actual !== null);
   if (withActuals.length === 0) return 0;
-  return withActuals[withActuals.length - 1].actual as number;
+  return withActuals.reduce((sum, m) => sum + (m.actual as number), 0);
 }
