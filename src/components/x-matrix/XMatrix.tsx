@@ -27,6 +27,7 @@ export function XMatrix() {
     fetchData,
     editModeState,
     getActiveData,
+    isLoading,
   } = useXMatrixStore();
 
   const data = getActiveData();
@@ -78,6 +79,21 @@ export function XMatrix() {
     );
   }, [data.relationships]);
 
+  // Show loading screen while fetching data
+  if (isLoading && data.id === '') {
+    return (
+      <div className="w-full h-full flex items-center justify-center p-2">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative w-12 h-12">
+            <div className="absolute inset-0 border-4 border-slate-700 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-transparent border-t-blue-500 rounded-full animate-spin"></div>
+          </div>
+          <p className="text-slate-400">Loading X-Matrix...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-full flex items-center justify-center p-2 overflow-auto">
       <motion.svg
@@ -120,6 +136,7 @@ export function XMatrix() {
           rowOffset={dim.displayInit - dim.initCount}
           findRel={findRelationship} onCellClick={toggleRelationship}
           isHighlighted={isHighlighted} isEditMode={isEditMode}
+          onCellHover={setHoveredElement}
         />
         {/* Top-Right: Init(rows) x KPI(cols) */}
         <RelGrid
@@ -131,6 +148,7 @@ export function XMatrix() {
           rowOffset={dim.displayInit - dim.initCount}
           findRel={findRelationship} onCellClick={toggleRelationship}
           isHighlighted={isHighlighted} isEditMode={isEditMode}
+          onCellHover={setHoveredElement}
         />
         {/* Owner grid: Init(rows) x Owner(cols) */}
         <RelGrid
@@ -142,6 +160,7 @@ export function XMatrix() {
           rowOffset={dim.displayInit - dim.initCount}
           findRel={findRelationship} onCellClick={toggleRelationship}
           isHighlighted={isHighlighted} isEditMode={isEditMode}
+          onCellHover={setHoveredElement}
         />
         {/* Bottom-Left: LTO(rows) x AO(cols) */}
         <RelGrid
@@ -153,6 +172,7 @@ export function XMatrix() {
           colOffset={dim.displayAo - dim.aoCount}
           findRel={findRelationship} onCellClick={toggleRelationship}
           isHighlighted={isHighlighted} isEditMode={isEditMode}
+          onCellHover={setHoveredElement}
         />
 
         {/* ============================================================= */}
@@ -346,6 +366,7 @@ interface RelGridProps {
   onCellClick: (rId: string, rType: any, cId: string, cType: any) => void;
   isHighlighted: (id: string) => boolean;
   isEditMode: boolean;
+  onCellHover?: (hoveredElement: null) => void;
 }
 
 function RelGrid({
@@ -353,7 +374,7 @@ function RelGrid({
   ox, oy, bandW, bandH,
   actualRows, actualCols,
   colOffset = 0, rowOffset = 0,
-  findRel, onCellClick, isHighlighted, isEditMode,
+  findRel, onCellClick, isHighlighted, isEditMode, onCellHover,
 }: RelGridProps) {
   const displayCols = Math.max(actualCols, MIN_CELLS);
   const displayRows = Math.max(actualRows, MIN_CELLS);
@@ -407,6 +428,8 @@ function RelGrid({
                 width={CELL} height={CELL}
                 fill="transparent"
                 style={{ cursor: isEditMode ? 'pointer' : 'default' }}
+                onMouseEnter={() => onCellHover?.(null)}
+                onMouseLeave={() => onCellHover?.(null)}
                 onClick={isEditMode ? () => onCellClick(row.id, rowType, col.id, colType) : undefined}
               />
               {hasRel && (

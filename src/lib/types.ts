@@ -5,7 +5,7 @@ export type RelationshipStrength = 'none' | 'primary' | 'secondary';
 
 export type EntityType = 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
 
-// Status Labels: completed (green), in-progress (yellow), delayed (red)
+// Status Labels: on-track (green), at-risk (yellow), off-track (red)
 export type HealthStatus = 'on-track' | 'at-risk' | 'off-track';
 
 export type Trend = 'up' | 'down' | 'stable';
@@ -62,7 +62,7 @@ export interface Initiative {
   endDate: string;
 }
 
-export type TargetDistribution = 'equal' | 'linear' | 'front-loaded' | 'back-loaded';
+export type TargetDistribution = 'equal' | 'linear' | 'front-loaded';
 
 export const KPI_UNITS = [
   { value: '%', label: '% — Percentage' },

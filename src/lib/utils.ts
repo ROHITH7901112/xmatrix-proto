@@ -7,12 +7,12 @@ export function cn(...inputs: ClassValue[]) {
 
 export const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-// Status label mapping: on-track → Completed, at-risk → In Progress, off-track → Delayed
+// Status label mapping for display badges
 export function getStatusLabel(health: 'on-track' | 'at-risk' | 'off-track'): string {
   const labels = {
-    'on-track': 'Completed',
-    'at-risk': 'In Progress',
-    'off-track': 'Delayed',
+    'on-track': 'On Track',
+    'at-risk': 'At Risk',
+    'off-track': 'Off Track',
   };
   return labels[health];
 }

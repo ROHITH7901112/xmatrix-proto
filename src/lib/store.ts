@@ -121,8 +121,23 @@ const generateId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().
 
 export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
   // Start with an empty XMatrix until `fetchData()` populates it from the server
-    data: mockData,
-  isLoading: false,
+  // Using empty data structure to avoid showing stale mock data on first load
+  data: {
+    id: '',
+    name: '',
+    vision: '',
+    trueNorth: '',
+    periodStart: 0,
+    periodEnd: 0,
+    themes: [],
+    longTermObjectives: [],
+    annualObjectives: [],
+    initiatives: [],
+    kpis: [],
+    owners: [],
+    relationships: [],
+  },
+  isLoading: true, // Start as loading to prevent UI flash
   error: null,
   viewState: initialViewState,
   filterState: initialFilterState,
@@ -968,7 +983,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
 
     // 2. Derive new health and trend deterministically
     const lowerBetter = isLowerBetter(kpi.unit, kpi.code);
-    const newHealth = deriveHealth(updatedMonthlyData, undefined, lowerBetter);
+    const newHealth = deriveHealth(updatedMonthlyData, undefined, lowerBetter, kpi.targetValue);
     const newTrend = deriveTrend(updatedMonthlyData, lowerBetter);
     const newCurrentValue = getCurrentValue(updatedMonthlyData);
 
@@ -988,32 +1003,24 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
       },
     }));
 
-    // 4. Persist to backend
+    // 4. Persist to backend — SINGLE API call combining monthly data + metadata
     try {
-      const response = await fetch(`/api/kpis/${kpiId}/monthly`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          monthlyData: [{ month, ...patch, variance: computeVariance(patch.actual ?? null, patch.target ?? 0) }],
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to save monthly data');
-      }
-
-      // Also update KPI metadata (health, trend, currentValue) on server
-      await fetch(`/api/kpis/${kpiId}`, {
+      const response = await fetch(`/api/kpis/${kpiId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           health: newHealth,
           trend: newTrend,
           currentValue: newCurrentValue,
+          monthlyData: updatedMonthlyData, // Send complete monthly data array
         }),
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to save KPI data');
+      }
     } catch (error) {
-      console.error('Error persisting monthly data, rolling back:', error);
+      console.error('Error persisting KPI data, rolling back:', error);
       // Rollback — restore original KPI
       set(state => ({
         data: {
@@ -1040,7 +1047,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
             return {
               ...k,
               monthlyData,
-              health: deriveHealth(monthlyData, undefined, lowerBetter),
+              health: deriveHealth(monthlyData, undefined, lowerBetter, k.targetValue),
               trend: deriveTrend(monthlyData, lowerBetter),
               currentValue: getCurrentValue(monthlyData),
             };

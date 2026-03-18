@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS kpis (
   owner_ids TEXT, -- JSON array stored as string
   start_date TEXT,
   end_date TEXT,
-  target_distribution TEXT CHECK(target_distribution IN ('equal', 'linear', 'front-loaded', 'back-loaded')) DEFAULT 'equal',
+  target_distribution TEXT CHECK(target_distribution IN ('equal', 'linear', 'front-loaded')) DEFAULT 'equal',
   FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE
 );
 

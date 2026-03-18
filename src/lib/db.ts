@@ -17,6 +17,7 @@ import {
   RelationshipStrength,
   TargetDistribution,
 } from './types';
+import { getCurrentValue, deriveHealth, deriveTrend, isLowerBetter } from './kpi-calculations';
 
 // Database file path - stored in project root
 const DB_PATH = path.join(process.cwd(), 'xmatrix.db');
@@ -221,7 +222,7 @@ export function updateOwner(id: string, data: Partial<Owner>): Owner | null {
   `);
   
   stmt.run(
-    data.name ?? current.name,
+    data.name ?? current.name, 
     data.role ?? current.role,
     data.avatar ?? current.avatar,
     data.initials ?? current.initials,
@@ -535,21 +536,25 @@ export function getKPIsByXMatrix(xmatrixId: string): KPI[] {
     target_distribution: string | null;
   }[];
   
-  return rows.map(row => ({
-    id: row.id,
-    code: row.code,
-    title: row.title,
-    unit: row.unit,
-    currentValue: row.current_value,
-    targetValue: row.target_value,
-    health: row.health as HealthStatus,
-    trend: row.trend as Trend,
-    ownerIds: JSON.parse(row.owner_ids || '[]'),
-    monthlyData: getMonthlyDataByKPI(row.id),
-    startDate: row.start_date ?? undefined,
-    endDate: row.end_date ?? undefined,
-    targetDistribution: (row.target_distribution as TargetDistribution) ?? 'equal',
-  }));
+  return rows.map(row => {
+    const monthlyData = getMonthlyDataByKPI(row.id);
+    const lowerBetter = isLowerBetter(row.unit, row.code);
+    return {
+      id: row.id,
+      code: row.code,
+      title: row.title,
+      unit: row.unit,
+      currentValue: getCurrentValue(monthlyData),
+      targetValue: row.target_value,
+      health: deriveHealth(monthlyData, undefined, lowerBetter, row.target_value),
+      trend: deriveTrend(monthlyData, lowerBetter),
+      ownerIds: JSON.parse(row.owner_ids || '[]'),
+      monthlyData: monthlyData,
+      startDate: row.start_date ?? undefined,
+      endDate: row.end_date ?? undefined,
+      targetDistribution: (row.target_distribution as TargetDistribution) ?? 'equal',
+    };
+  });
 }
 
 export function getKPIById(id: string): KPI | null {
@@ -571,17 +576,20 @@ export function getKPIById(id: string): KPI | null {
   
   if (!row) return null;
   
+  const monthlyData = getMonthlyDataByKPI(row.id);
+  const lowerBetter = isLowerBetter(row.unit, row.code);
+  
   return {
     id: row.id,
     code: row.code,
     title: row.title,
     unit: row.unit,
-    currentValue: row.current_value,
+    currentValue: getCurrentValue(monthlyData),
     targetValue: row.target_value,
-    health: row.health as HealthStatus,
-    trend: row.trend as Trend,
+    health: deriveHealth(monthlyData, undefined, lowerBetter, row.target_value),
+    trend: deriveTrend(monthlyData, lowerBetter),
     ownerIds: JSON.parse(row.owner_ids || '[]'),
-    monthlyData: getMonthlyDataByKPI(row.id),
+    monthlyData: monthlyData,
     startDate: row.start_date ?? undefined,
     endDate: row.end_date ?? undefined,
     targetDistribution: (row.target_distribution as TargetDistribution) ?? 'equal',
@@ -650,6 +658,17 @@ export function updateKPI(id: string, data: Partial<KPI>): KPI | null {
     data.targetDistribution ?? current.targetDistribution ?? 'equal',
     id
   );
+
+  // If monthlyData is provided, update monthly KPI data
+  if (data.monthlyData && Array.isArray(data.monthlyData) && data.monthlyData.length > 0) {
+    const monthlyDeleteByKpi = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id = ?');
+    const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance) VALUES (?, ?, ?, ?, ?)');
+    
+    monthlyDeleteByKpi.run(id);
+    for (const m of data.monthlyData) {
+      monthlyInsert.run(id, m.month, m.target, m.actual ?? null, m.variance ?? null);
+    }
+  }
   
   return getKPIById(id);
 }
@@ -867,9 +886,13 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
     }
     for (const e of kpiDiff.updated) {
       kpiUpdate.run(e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds), e.startDate ?? null, e.endDate ?? null, e.targetDistribution ?? 'equal', e.id);
-      // Re-sync monthly data for updated KPIs
-      monthlyDeleteByKpi.run(e.id);
-      if (e.monthlyData) for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
+      // Re-sync monthly data ONLY if monthlyData array is provided and non-empty
+      // This prevents data loss when relationships are modified without touching monthlyData
+      if (e.monthlyData && e.monthlyData.length > 0) {
+        monthlyDeleteByKpi.run(e.id);
+        for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
+      }
+      // Otherwise, preserve existing monthly data from the database
     }
     for (const e of kpiDiff.deleted) {
       kpiRelDelete.run(e.id, e.id);
