@@ -83,8 +83,9 @@ interface XMatrixStore {
   deleteOwner: (id: string) => Promise<void>;
 
   // Bowling Chart Actions
-  updateMonthlyKpiData: (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
-  refreshKpiMonthlyData: (kpiId: string) => Promise<void>;
+  loadBowlingChartYear: (year: number) => Promise<void>;
+  updateMonthlyKpiData: (kpiId: string, year: number, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
+  refreshKpiMonthlyData: (kpiId: string, year?: number) => Promise<void>;
 
   // Computed
   getRelatedElements: (elementId: string, elementType: string) => Set<string>;
@@ -153,7 +154,25 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
       if (matrices.length > 0) {
         set({ data: matrices[0], isLoading: false });
       } else {
-        set({ isLoading: false });
+        // No records exist yet: create a blank real matrix (not mock data)
+        const currentYear = new Date().getFullYear();
+        const createResponse = await fetch('/api/xmatrix', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: `xmatrix-${currentYear}`,
+            name: `Strategy ${currentYear}`,
+            vision: '',
+            trueNorth: '',
+            periodStart: currentYear,
+            periodEnd: currentYear + 2,
+            themes: [],
+          }),
+        });
+
+        if (!createResponse.ok) throw new Error('Failed to initialize XMatrix');
+        const createdMatrix = await createResponse.json();
+        set({ data: createdMatrix, isLoading: false });
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -899,17 +918,36 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
           const neighborType = entityTypeById.get(neighborId);
           if (!neighborType) continue;
 
+          // When hovering/selecting a KPI, keep KPI/Owner highlights strict:
+          // - never traverse into another KPI
+          // - only include owners directly attached to the starting KPI
+          if (elementType === 'kpi') {
+            if (neighborType === 'kpi' && neighborId !== startId) continue;
+            if (neighborType === 'owner' && !(current.id === startId && current.type === 'kpi')) continue;
+          }
+
+          // When hovering/selecting an Owner, avoid owner-to-owner and owner-hopping chains:
+          // startOwner -> KPI is allowed, but KPI -> otherOwner is blocked.
+          // This prevents unrelated owners/KPIs from lighting up through shared assignments.
+          if (elementType === 'owner') {
+            if (neighborType === 'owner') continue;
+            if (current.type === 'kpi' && neighborType === 'owner') continue;
+          }
+
           const neighborRank = getRank(neighborType);
 
-          // KPI ↔ Owner are peers (rank 3 & 4) — always propagate between them
-          const isKpiOwnerPeer =
-            (current.type === 'kpi' && neighborType === 'owner') ||
-            (current.type === 'owner' && neighborType === 'kpi');
+          // KPI ↔ Owner traversal rules:
+          // - Allow KPI -> Owner so KPI hover can show its assigned owners.
+          // - Allow Owner -> KPI only when Owner is the START node (direct ownership view).
+          //   This prevents bouncing Owner -> other KPI -> ... which over-highlights unrelated KPIs.
+          const isKpiToOwner = current.type === 'kpi' && neighborType === 'owner';
+          const isOwnerToKpiFromStartOwner =
+            current.type === 'owner' && neighborType === 'kpi' && current.id === startId;
 
           let isValidStep = false;
 
-          if (isKpiOwnerPeer) {
-            // Always allow KPI↔Owner traversal regardless of direction
+          if (isKpiToOwner || isOwnerToKpiFromStartOwner) {
+            // Controlled KPI/Owner traversal to avoid owner-based over-propagation
             isValidStep = true;
           } else if (direction === 'up' && neighborRank < currentRank) {
             isValidStep = true;
@@ -955,7 +993,27 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
   },
 
   // Bowling Chart Actions
-  updateMonthlyKpiData: async (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => {
+  loadBowlingChartYear: async (year: number) => {
+    const { data } = get();
+    if (!data.id) return;
+
+    try {
+      const response = await fetch(`/api/kpis?xmatrixId=${data.id}&year=${year}`);
+      if (!response.ok) throw new Error('Failed to load KPI year data');
+      const yearKpis = await response.json();
+
+      set(state => ({
+        data: {
+          ...state.data,
+          kpis: yearKpis,
+        },
+      }));
+    } catch (error) {
+      console.error('Error loading Bowling Chart year data:', error);
+    }
+  },
+
+  updateMonthlyKpiData: async (kpiId: string, year: number, month: string, patch: { target?: number; actual?: number | null }) => {
     const state = get();
     const kpi = state.data.kpis.find(k => k.id === kpiId);
     if (!kpi) return;
@@ -966,7 +1024,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
       const newTarget = patch.target !== undefined ? patch.target : m.target;
       const newActual = patch.actual !== undefined ? patch.actual : m.actual;
       const newVariance = computeVariance(newActual, newTarget);
-      return { ...m, target: newTarget, actual: newActual, variance: newVariance };
+      return { ...m, year, target: newTarget, actual: newActual, variance: newVariance };
     });
 
     // If month doesn't exist in array, add it
@@ -974,6 +1032,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
       const target = patch.target ?? 0;
       const actual = patch.actual !== undefined ? patch.actual : null;
       updatedMonthlyData.push({
+        year,
         month,
         target,
         actual,
@@ -1009,6 +1068,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          year,
           health: newHealth,
           trend: newTrend,
           currentValue: newCurrentValue,
@@ -1031,12 +1091,15 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     }
   },
 
-  refreshKpiMonthlyData: async (kpiId: string) => {
+  refreshKpiMonthlyData: async (kpiId: string, year: number = new Date().getFullYear()) => {
     try {
-      const response = await fetch(`/api/kpis/${kpiId}/monthly`);
+      const response = await fetch(`/api/kpis/${kpiId}/monthly?year=${year}`);
       if (!response.ok) return;
       const result = await response.json();
-      const monthlyData: MonthlyKPIData[] = result.monthlyData;
+      const monthlyData: MonthlyKPIData[] = result.monthlyData.map((m: MonthlyKPIData) => ({
+        ...m,
+        year,
+      }));
 
       set(state => ({
         data: {

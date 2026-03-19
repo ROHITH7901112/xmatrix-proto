@@ -54,6 +54,49 @@ function runMigrations(): void {
   addColumn('kpis', 'start_date', 'TEXT');
   addColumn('kpis', 'end_date', 'TEXT');
   addColumn('kpis', 'target_distribution', "TEXT DEFAULT 'equal'");
+  
+  // Check if year column exists in monthly_kpi_data table
+  try {
+    const columnInfo = db!.prepare("PRAGMA table_info(monthly_kpi_data)").all() as { name: string }[];
+    const hasYearColumn = columnInfo.some(col => col.name === 'year');
+    
+    if (!hasYearColumn) {
+      // Add year column if it doesn't exist
+      db!.exec('ALTER TABLE monthly_kpi_data ADD COLUMN year INTEGER');
+      
+      // Set default year for existing data
+      db!.exec("UPDATE monthly_kpi_data SET year = CAST(strftime('%Y','now') AS INTEGER) WHERE year IS NULL");
+    }
+  } catch (error) {
+    console.error('Error checking/adding year column:', error);
+    // Try to add column directly as fallback
+    addColumn('monthly_kpi_data', 'year', 'INTEGER');
+  }
+
+  try {
+    db!.exec('CREATE INDEX IF NOT EXISTS idx_monthly_kpi_year ON monthly_kpi_data(kpi_id, year)');
+  } catch {
+    // ignore
+  }
+
+  try {
+    db!.exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_monthly_kpi_year_month ON monthly_kpi_data(kpi_id, year, month)');
+  } catch {
+    // If duplicates exist from pre-migration data, dedupe and retry once.
+    try {
+      db!.exec(`
+        DELETE FROM monthly_kpi_data
+        WHERE id NOT IN (
+          SELECT MAX(id)
+          FROM monthly_kpi_data
+          GROUP BY kpi_id, year, month
+        )
+      `);
+      db!.exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_monthly_kpi_year_month ON monthly_kpi_data(kpi_id, year, month)');
+    } catch {
+      // final fallback: leave index creation skipped
+    }
+  }
 }
 
 // ============ XMatrix CRUD ============
@@ -519,7 +562,7 @@ export function deleteInitiative(id: string): boolean {
 
 // ============ KPI CRUD ============
 
-export function getKPIsByXMatrix(xmatrixId: string): KPI[] {
+export function getKPIsByXMatrix(xmatrixId: string, year: number = new Date().getFullYear()): KPI[] {
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM kpis WHERE xmatrix_id = ?').all(xmatrixId) as {
     id: string;
@@ -537,7 +580,7 @@ export function getKPIsByXMatrix(xmatrixId: string): KPI[] {
   }[];
   
   return rows.map(row => {
-    const monthlyData = getMonthlyDataByKPI(row.id);
+    const monthlyData = getMonthlyDataByKPI(row.id, year);
     const lowerBetter = isLowerBetter(row.unit, row.code);
     return {
       id: row.id,
@@ -557,7 +600,7 @@ export function getKPIsByXMatrix(xmatrixId: string): KPI[] {
   });
 }
 
-export function getKPIById(id: string): KPI | null {
+export function getKPIById(id: string, year: number = new Date().getFullYear()): KPI | null {
   const db = getDatabase();
   const row = db.prepare('SELECT * FROM kpis WHERE id = ?').get(id) as {
     id: string;
@@ -576,7 +619,7 @@ export function getKPIById(id: string): KPI | null {
   
   if (!row) return null;
   
-  const monthlyData = getMonthlyDataByKPI(row.id);
+  const monthlyData = getMonthlyDataByKPI(row.id, year);
   const lowerBetter = isLowerBetter(row.unit, row.code);
   
   return {
@@ -621,20 +664,21 @@ export function createKPI(xmatrixId: string, data: KPI): KPI {
   
   // Insert monthly data
   if (data.monthlyData && data.monthlyData.length > 0) { //
+    const defaultYear = data.startDate ? new Date(data.startDate).getFullYear() : new Date().getFullYear();
     const monthlyStmt = db.prepare(`
-      INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO monthly_kpi_data (kpi_id, year, month, target, actual, variance)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     
     for (const monthly of data.monthlyData) { // we loop through each monthly data entry and insert it into the monthly_kpi_data table, associating it with the newly created KPI using data.id as the kpi_id foreign key. This ensures that all monthly data for the KPI is properly stored in the database right after the KPI itself is created.
-      monthlyStmt.run(data.id, monthly.month, monthly.target, monthly.actual, monthly.variance);
+      monthlyStmt.run(data.id, monthly.year ?? defaultYear, monthly.month, monthly.target, monthly.actual, monthly.variance);
     }
   }
   
   return getKPIById(data.id)!;
 }
 
-export function updateKPI(id: string, data: Partial<KPI>): KPI | null { 
+export function updateKPI(id: string, data: Partial<KPI> & { monthlyDataYear?: number }): KPI | null { 
   const db = getDatabase();
   const current = getKPIById(id);
   if (!current) return null;
@@ -661,12 +705,25 @@ export function updateKPI(id: string, data: Partial<KPI>): KPI | null {
 
   // If monthlyData is provided, update monthly KPI data
   if (data.monthlyData && Array.isArray(data.monthlyData) && data.monthlyData.length > 0) {
-    const monthlyDeleteByKpi = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id = ?');
-    const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance) VALUES (?, ?, ?, ?, ?)');
+    const fallbackYear = current.startDate
+      ? new Date(current.startDate).getFullYear()
+      : new Date().getFullYear();
+    const defaultYear = data.monthlyDataYear
+      ?? data.monthlyData.find(m => typeof m.year === 'number')?.year
+      ?? fallbackYear;
+    const existingRows = db.prepare(
+      'SELECT month, actual, variance FROM monthly_kpi_data WHERE kpi_id = ? AND year = ?'
+    ).all(id, defaultYear) as { month: string; actual: number | null; variance: number | null }[];
+    const existingByMonth = new Map(existingRows.map(r => [r.month, r]));
+    const monthlyDeleteByKpiYear = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id = ? AND year = ?');
+    const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, year, month, target, actual, variance) VALUES (?, ?, ?, ?, ?, ?)');
     
-    monthlyDeleteByKpi.run(id);
+    monthlyDeleteByKpiYear.run(id, defaultYear);
     for (const m of data.monthlyData) {
-      monthlyInsert.run(id, m.month, m.target, m.actual ?? null, m.variance ?? null);
+      const existing = existingByMonth.get(m.month);
+      const nextActual = m.actual ?? existing?.actual ?? null;
+      const nextVariance = m.variance ?? existing?.variance ?? null;
+      monthlyInsert.run(id, m.year ?? defaultYear, m.month, m.target, nextActual, nextVariance);
     }
   }
   
@@ -686,16 +743,29 @@ export function deleteKPI(id: string): boolean {
 
 const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export function getMonthlyDataByKPI(kpiId: string): MonthlyKPIData[] {
+export function getMonthlyDataByKPI(kpiId: string, year: number = new Date().getFullYear()): MonthlyKPIData[] {
   const db = getDatabase();
-  const rows = db.prepare('SELECT * FROM monthly_kpi_data WHERE kpi_id = ? ORDER BY id').all(kpiId) as {
+  const rows = db.prepare('SELECT * FROM monthly_kpi_data WHERE kpi_id = ? AND year = ? ORDER BY id').all(kpiId, year) as {
     month: string;
     target: number;
     actual: number | null;
     variance: number | null;
   }[];
+
+  const latestYear = db.prepare(
+    'SELECT year FROM monthly_kpi_data WHERE kpi_id = ? AND year IS NOT NULL ORDER BY year DESC LIMIT 1'
+  ).get(kpiId) as { year: number } | undefined;
+
+  let targetTemplate = new Map<string, number>();
+  if (rows.length === 0 && latestYear) {
+    const latestRows = db.prepare(
+      'SELECT month, target FROM monthly_kpi_data WHERE kpi_id = ? AND year = ? ORDER BY id'
+    ).all(kpiId, latestYear.year) as { month: string; target: number }[];
+    targetTemplate = new Map(latestRows.map(r => [r.month, r.target]));
+  }
   
   const monthlyData = rows.map(row => ({
+    year,
     month: row.month,
     target: row.target,
     actual: row.actual,
@@ -708,7 +778,13 @@ export function getMonthlyDataByKPI(kpiId: string): MonthlyKPIData[] {
   return ALL_MONTHS.map(month => {
     const existing = monthMap.get(month);
     if (existing) return existing;
-    return { month, target: 0, actual: null, variance: null };
+    return {
+      year,
+      month,
+      target: targetTemplate.get(month) ?? 0,
+      actual: null,
+      variance: null,
+    };
   });
 }
 
@@ -878,19 +954,28 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
     const kpiUpdate = db.prepare('UPDATE kpis SET code=?, title=?, unit=?, current_value=?, target_value=?, health=?, trend=?, owner_ids=?, start_date=?, end_date=?, target_distribution=? WHERE id=?');
     const kpiDelete = db.prepare('DELETE FROM kpis WHERE id=?');
     const kpiRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
-    const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance) VALUES (?, ?, ?, ?, ?)');
-    const monthlyDeleteByKpi = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id=?');
+    const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, year, month, target, actual, variance) VALUES (?, ?, ?, ?, ?, ?)');
+    const monthlyDeleteByKpiYear = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id=? AND year=?');
     for (const e of kpiDiff.added) {
       kpiInsert.run(e.id, xmatrixId, e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds), e.startDate ?? null, e.endDate ?? null, e.targetDistribution ?? 'equal');
-      if (e.monthlyData) for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
+      const defaultYear = e.startDate ? new Date(e.startDate).getFullYear() : new Date().getFullYear();
+      if (e.monthlyData) {
+        for (const m of e.monthlyData) {
+          monthlyInsert.run(e.id, m.year ?? defaultYear, m.month, m.target, m.actual, m.variance);
+        }
+      }
     }
     for (const e of kpiDiff.updated) {
       kpiUpdate.run(e.code, e.title, e.unit, e.currentValue, e.targetValue, e.health, e.trend, JSON.stringify(e.ownerIds), e.startDate ?? null, e.endDate ?? null, e.targetDistribution ?? 'equal', e.id);
       // Re-sync monthly data ONLY if monthlyData array is provided and non-empty
       // This prevents data loss when relationships are modified without touching monthlyData
       if (e.monthlyData && e.monthlyData.length > 0) {
-        monthlyDeleteByKpi.run(e.id);
-        for (const m of e.monthlyData) monthlyInsert.run(e.id, m.month, m.target, m.actual, m.variance);
+        const fallbackYear = e.startDate ? new Date(e.startDate).getFullYear() : new Date().getFullYear();
+        const monthlyYear = e.monthlyData.find(m => typeof m.year === 'number')?.year ?? fallbackYear;
+        monthlyDeleteByKpiYear.run(e.id, monthlyYear);
+        for (const m of e.monthlyData) {
+          monthlyInsert.run(e.id, m.year ?? monthlyYear, m.month, m.target, m.actual, m.variance);
+        }
       }
       // Otherwise, preserve existing monthly data from the database
     }

@@ -91,7 +91,7 @@ interface SortState {
 // MAIN BOWLING CHART
 // ============================================================================
 export function BowlingChart() {
-  const { data, fetchData, setHoveredElement, setSelectedElement, updateMonthlyKpiData } = useXMatrixStore();
+  const { data, fetchData, setHoveredElement, setSelectedElement, updateMonthlyKpiData, loadBowlingChartYear } = useXMatrixStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Always fetch fresh data when this page mounts — ensures newly created KPIs appear
@@ -106,6 +106,36 @@ export function BowlingChart() {
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<SortState>({ field: null, direction: 'asc' });
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
+
+  const minYear = useMemo(() => {
+    const startYears = data.kpis
+      .map(kpi => kpi.startDate ? new Date(kpi.startDate).getFullYear() : null)
+      .filter((year): year is number => year !== null && !Number.isNaN(year));
+    const baseline = data.periodStart || CURRENT_YEAR;
+    return startYears.length > 0 ? Math.min(baseline, ...startYears) : baseline;
+  }, [data.kpis, data.periodStart]);
+
+  const maxYear = useMemo(() => {
+    const periodEnd = data.periodEnd || CURRENT_YEAR;
+    return Math.max(periodEnd, CURRENT_YEAR);
+  }, [data.periodEnd]);
+
+  const effectiveCurrentMonthIndex = useMemo(() => {
+    if (selectedYear < CURRENT_YEAR) return 11;
+    if (selectedYear > CURRENT_YEAR) return -1;
+    return CURRENT_MONTH_INDEX;
+  }, [selectedYear]);
+
+  const varianceSortMonthIndex = useMemo(() => {
+    if (selectedYear < CURRENT_YEAR) return 11;
+    if (selectedYear > CURRENT_YEAR) return 0;
+    return CURRENT_MONTH_INDEX;
+  }, [selectedYear]);
+
+  useEffect(() => {
+    if (!data.id) return;
+    loadBowlingChartYear(selectedYear);
+  }, [data.id, selectedYear, loadBowlingChartYear]);
 
   const toggleRow = useCallback((id: string) => {
     setExpandedRows(prev => {
@@ -162,8 +192,9 @@ export function BowlingChart() {
           break;
         }
         case 'variance': {
-          const aData = a.monthlyData.find(m => m.month === months[CURRENT_MONTH_INDEX]);
-          const bData = b.monthlyData.find(m => m.month === months[CURRENT_MONTH_INDEX]);
+          const sortMonth = months[varianceSortMonthIndex];
+          const aData = a.monthlyData.find(m => m.month === sortMonth);
+          const bData = b.monthlyData.find(m => m.month === sortMonth);
           const aVar = aData?.variance ?? -Infinity;
           const bVar = bData?.variance ?? -Infinity;
           cmp = aVar - bVar;
@@ -174,7 +205,7 @@ export function BowlingChart() {
     });
 
     return sorted;
-  }, [filteredKpis, sort, data.owners]);
+  }, [filteredKpis, sort, data.owners, varianceSortMonthIndex]);
 
   const getOwnersByIds = useCallback((ids: string[]): Owner[] => {
     return data.owners.filter((o) => ids.includes(o.id));
@@ -216,6 +247,7 @@ export function BowlingChart() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSelectedYear(y => y - 1)}
+              disabled={selectedYear <= minYear}
               className="flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
               title="Previous year"
             >
@@ -226,6 +258,7 @@ export function BowlingChart() {
             </span>
             <button
               onClick={() => setSelectedYear(y => y + 1)}
+              disabled={selectedYear >= maxYear}
               className="flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
               title="Next year"
             >
@@ -375,7 +408,7 @@ export function BowlingChart() {
                   key={month}
                   className={cn(
                     'px-2 py-3 text-center text-xs font-semibold uppercase tracking-wider w-24',
-                    idx === CURRENT_MONTH_INDEX
+                    idx === effectiveCurrentMonthIndex
                       ? 'text-blue-400 bg-blue-500/5'
                       : 'text-slate-400'
                   )}
@@ -396,6 +429,7 @@ export function BowlingChart() {
                 onHover={(hover) => setHoveredElement(hover ? { id: kpi.id, type: 'kpi' } : null)}
                 onClick={() => setSelectedElement({ id: kpi.id, type: 'kpi' })}
                 onUpdateMonthly={updateMonthlyKpiData}
+                selectedYear={selectedYear}
                 index={index}
               />
             ))}
@@ -423,7 +457,8 @@ interface KPIRowProps {
   onToggle: () => void;
   onHover: (hover: boolean) => void;
   onClick: () => void;
-  onUpdateMonthly: (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
+  onUpdateMonthly: (kpiId: string, year: number, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
+  selectedYear: number;
   index: number;
 }
 
@@ -435,6 +470,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
   onHover,
   onClick,
   onUpdateMonthly,
+  selectedYear,
   index,
 }: KPIRowProps) {
   const TrendIcon = kpi.trend === 'up' ? TrendingUp : kpi.trend === 'down' ? TrendingDown : Minus;
@@ -527,6 +563,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
               monthData={monthData}
               unit={kpi.unit}
               lowerBetter={lowerBetter}
+              selectedYear={selectedYear}
               monthIndex={monthIndex}
               onSave={onUpdateMonthly}
             />
@@ -561,20 +598,24 @@ interface EditableMonthlyCellProps {
   monthData: MonthlyKPIData;
   unit: string;
   lowerBetter: boolean;
+  selectedYear: number;
   monthIndex: number;
-  onSave: (kpiId: string, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
+  onSave: (kpiId: string, year: number, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
 }
 
-function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, monthIndex, onSave }: EditableMonthlyCellProps) {
+function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear, monthIndex, onSave }: EditableMonthlyCellProps) {
   const [isEditingActual, setIsEditingActual] = useState(false);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const isPast = monthIndex <= CURRENT_MONTH_INDEX;
-  const isCurrent = monthIndex === CURRENT_MONTH_INDEX;
-  const isFuture = monthIndex > CURRENT_MONTH_INDEX;
+  const effectiveCurrentMonthIndex =
+    selectedYear < CURRENT_YEAR ? 11 : selectedYear > CURRENT_YEAR ? -1 : CURRENT_MONTH_INDEX;
+
+  const isPast = monthIndex <= effectiveCurrentMonthIndex;
+  const isCurrent = monthIndex === effectiveCurrentMonthIndex;
+  const isFuture = monthIndex > effectiveCurrentMonthIndex;
 
   const handleStartEditActual = useCallback((e: React.MouseEvent) => {
     e.stopPropagation(); // Don't trigger row click
@@ -625,16 +666,16 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, monthIndex, 
     setIsSaving(true);
     try {
       if (isEditingActual) {
-        await onSave(kpiId, monthData.month, { actual: newValue });
+        await onSave(kpiId, selectedYear, monthData.month, { actual: newValue });
       } else if (isEditingTarget) {
-        await onSave(kpiId, monthData.month, { target: newValue as number });
+        await onSave(kpiId, selectedYear, monthData.month, { target: newValue as number });
       }
     } finally {
       setIsSaving(false);
       setIsEditingActual(false);
       setIsEditingTarget(false);
     }
-  }, [editValue, monthData.actual, monthData.target, monthData.month, kpiId, onSave, isEditingActual, isEditingTarget]);
+  }, [editValue, monthData.actual, monthData.target, monthData.month, kpiId, onSave, isEditingActual, isEditingTarget, selectedYear]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {

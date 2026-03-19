@@ -627,15 +627,29 @@ function KPIForm({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        const distributedTargets = computeDistributedTargets(
+            formData.targetValue,
+            formData.startDate || '',
+            formData.endDate || '',
+            formData.targetDistribution || 'equal',
+            formData.currentValue,
+        );
+
+        const existingByMonth = new Map(
+            (initialData?.monthlyData ?? []).map((m) => [m.month, m])
+        );
+        const monthlyData = distributedTargets.map((m) => {
+            const existing = existingByMonth.get(m.month);
+            return {
+                ...m,
+                actual: existing?.actual ?? m.actual,
+                variance: existing?.variance ?? m.variance,
+            };
+        });
+
         onSubmit({
             ...formData,
-            monthlyData: computeDistributedTargets(
-                formData.targetValue,
-                formData.startDate || '',
-                formData.endDate || '',
-                formData.targetDistribution || 'equal',
-                formData.currentValue,
-            ),
+            monthlyData,
         });
     };
 

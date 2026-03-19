@@ -488,26 +488,40 @@ export function KPIForm({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const monthlyData = computeDistributedTargets(
+        const distributedTargets = computeDistributedTargets(
             formData.targetValue,
             formData.startDate || '',
             formData.endDate || '',
             formData.targetDistribution || 'equal',
             formData.currentValue,
         );
+
+        // Preserve existing entered actuals/variance on edit while refreshing targets.
+        const existingByMonth = new Map(
+            (initialData?.monthlyData ?? []).map((m) => [m.month, m])
+        );
+        const monthlyData = distributedTargets.map((m) => {
+            const existing = existingByMonth.get(m.month);
+            return {
+                ...m,
+                actual: existing?.actual ?? m.actual,
+                variance: existing?.variance ?? m.variance,
+                year: existing?.year,
+            };
+        });
         
         // Calculate health and trend automatically from monthly data
         const lowerBetter = isLowerBetter(formData.unit, formData.code);
         const calculatedHealth = deriveHealth(monthlyData, undefined, lowerBetter, formData.targetValue);
         const calculatedTrend = deriveTrend(monthlyData, lowerBetter);
-        const calculatedCurrentValue = getCurrentValue(monthlyData);
         
         const kpiWithMonthly: KPI = {
             ...formData,
             monthlyData,
             health: calculatedHealth,
             trend: calculatedTrend,
-            currentValue: calculatedCurrentValue,
+            // Keep user-entered current value; do not overwrite it from generated monthly data.
+            currentValue: formData.currentValue,
         };
         onSubmit(kpiWithMonthly);
     };

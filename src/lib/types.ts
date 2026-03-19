@@ -99,6 +99,7 @@ export interface KPI {
 }
 
 export interface MonthlyKPIData {
+  year?: number;
   month: string;
   target: number;
   actual: number | null;

@@ -84,10 +84,12 @@ CREATE TABLE IF NOT EXISTS kpis (
 CREATE TABLE IF NOT EXISTS monthly_kpi_data (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kpi_id TEXT NOT NULL,
+  year INTEGER,
   month TEXT,
   target REAL,
   actual REAL,
   variance REAL, 
+  UNIQUE(kpi_id, year, month),
   FOREIGN KEY (kpi_id) REFERENCES kpis(id) ON DELETE CASCADE
 );
 
@@ -111,6 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_ao_xmatrix ON annual_objectives(xmatrix_id);
 CREATE INDEX IF NOT EXISTS idx_initiatives_xmatrix ON initiatives(xmatrix_id);
 CREATE INDEX IF NOT EXISTS idx_kpis_xmatrix ON kpis(xmatrix_id);
 CREATE INDEX IF NOT EXISTS idx_monthly_kpi ON monthly_kpi_data(kpi_id);
+CREATE INDEX IF NOT EXISTS idx_monthly_kpi_year ON monthly_kpi_data(kpi_id, year);
 CREATE INDEX IF NOT EXISTS idx_relationships_xmatrix ON relationships(xmatrix_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id);
