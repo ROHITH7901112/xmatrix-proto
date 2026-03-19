@@ -87,6 +87,7 @@ interface KPI {
     health: HealthStatus;
     trend: Trend;
     ownerIds: string[];
+    monthlyData: { month: string; target: number; actual: number | null; variance: number | null }[];
     startDate?: string;
     endDate?: string;
     targetDistribution?: TargetDistribution;
@@ -612,6 +613,7 @@ function KPIForm({
         health: 'on-track',
         trend: 'stable',
         ownerIds: [],
+        monthlyData: [],
         startDate: today,
         endDate: new Date(new Date().getFullYear(), 11, 31).toISOString().split('T')[0],
         targetDistribution: 'equal',
@@ -643,7 +645,7 @@ function KPIForm({
             return {
                 ...m,
                 actual: existing?.actual ?? m.actual,
-                variance: existing?.variance ?? m.variance,
+                variance: null,
             };
         });
 
