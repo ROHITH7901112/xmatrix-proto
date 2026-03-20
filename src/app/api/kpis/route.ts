@@ -7,6 +7,8 @@ import { getKPIsByXMatrix, createKPI } from '@/lib/db';
 export async function GET(request: NextRequest) {
     try {
         const xmatrixId = request.nextUrl.searchParams.get('xmatrixId');
+        const yearParam = request.nextUrl.searchParams.get('year');
+        const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
 
         if (!xmatrixId) {
             return NextResponse.json(
@@ -15,7 +17,7 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const kpis = getKPIsByXMatrix(xmatrixId);
+        const kpis = getKPIsByXMatrix(xmatrixId, Number.isNaN(year) ? new Date().getFullYear() : year);
         return NextResponse.json(kpis);
     } catch (error) {
         console.error('Error fetching KPIs:', error);

@@ -87,6 +87,7 @@ interface KPI {
     health: HealthStatus;
     trend: Trend;
     ownerIds: string[];
+    monthlyData: { month: string; target: number; actual: number | null; variance: number | null }[];
     startDate?: string;
     endDate?: string;
     targetDistribution?: TargetDistribution;
@@ -612,6 +613,7 @@ function KPIForm({
         health: 'on-track',
         trend: 'stable',
         ownerIds: [],
+        monthlyData: [],
         startDate: today,
         endDate: new Date(new Date().getFullYear(), 11, 31).toISOString().split('T')[0],
         targetDistribution: 'equal',
@@ -627,15 +629,29 @@ function KPIForm({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        const distributedTargets = computeDistributedTargets(
+            formData.targetValue,
+            formData.startDate || '',
+            formData.endDate || '',
+            formData.targetDistribution || 'equal',
+            formData.currentValue,
+        );
+
+        const existingByMonth = new Map(
+            (initialData?.monthlyData ?? []).map((m) => [m.month, m])
+        );
+        const monthlyData = distributedTargets.map((m) => {
+            const existing = existingByMonth.get(m.month);
+            return {
+                ...m,
+                actual: existing?.actual ?? m.actual,
+                variance: null,
+            };
+        });
+
         onSubmit({
             ...formData,
-            monthlyData: computeDistributedTargets(
-                formData.targetValue,
-                formData.startDate || '',
-                formData.endDate || '',
-                formData.targetDistribution || 'equal',
-                formData.currentValue,
-            ),
+            monthlyData,
         });
     };
 

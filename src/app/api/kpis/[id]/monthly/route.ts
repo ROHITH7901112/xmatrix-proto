@@ -24,17 +24,19 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const year = request.nextUrl.searchParams.get('year') || new Date().getFullYear().toString();
+    const year = parseInt(request.nextUrl.searchParams.get('year') || `${new Date().getFullYear()}`, 10);
 
-    const kpi = getKPIById(id);
+    const kpi = getKPIById(id, Number.isNaN(year) ? new Date().getFullYear() : year);
     if (!kpi) {
       return NextResponse.json({ error: 'KPI not found' }, { status: 404 });
     }
 
     const db = getDatabase();
-    const stored = db.prepare('SELECT * FROM monthly_kpi_data WHERE kpi_id = ?').all(id) as {
+    const selectedYear = Number.isNaN(year) ? new Date().getFullYear() : year;
+    const stored = db.prepare('SELECT * FROM monthly_kpi_data WHERE kpi_id = ? AND year = ?').all(id, selectedYear) as {
       id: number;
       kpi_id: string;
+      year: number;
       month: string;
       target: number;
       actual: number | null;
@@ -52,7 +54,7 @@ export async function GET(
 
     return NextResponse.json({
       kpiId: id,
-      year: parseInt(year),
+      year: selectedYear,
       monthlyData: fullYear,
     });
   } catch (error) {
@@ -71,13 +73,14 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { monthlyData } = body as { monthlyData: Partial<MonthlyKPIData>[] };
+    const { monthlyData, year } = body as { monthlyData: Partial<MonthlyKPIData>[]; year?: number };
+    const selectedYear = typeof year === 'number' ? year : new Date().getFullYear();
 
     if (!monthlyData || !Array.isArray(monthlyData)) {
       return NextResponse.json({ error: 'monthlyData array required' }, { status: 400 });
     }
 
-    const kpi = getKPIById(id);
+    const kpi = getKPIById(id, selectedYear);
     if (!kpi) {
       return NextResponse.json({ error: 'KPI not found' }, { status: 404 });
     }
@@ -91,8 +94,8 @@ export async function PUT(
 
         // Check if row exists
         const existing = db.prepare(
-          'SELECT id, target FROM monthly_kpi_data WHERE kpi_id = ? AND month = ?'
-        ).get(id, item.month) as { id: number; target: number } | undefined;
+          'SELECT id, target FROM monthly_kpi_data WHERE kpi_id = ? AND year = ? AND month = ?'
+        ).get(id, selectedYear, item.month) as { id: number; target: number } | undefined;
 
         // Compute variance
         const target = item.target !== undefined ? item.target : (existing?.target ?? 0);
@@ -120,8 +123,8 @@ export async function PUT(
         } else {
           // Insert new row
           db.prepare(
-            'INSERT INTO monthly_kpi_data (kpi_id, month, target, actual, variance) VALUES (?, ?, ?, ?, ?)'
-          ).run(id, item.month, target, actual, variance);
+            'INSERT INTO monthly_kpi_data (kpi_id, year, month, target, actual, variance) VALUES (?, ?, ?, ?, ?, ?)'
+          ).run(id, selectedYear, item.month, target, actual, variance);
         }
       }
     });
@@ -129,9 +132,10 @@ export async function PUT(
     upsert(monthlyData);
 
     // Re-fetch and return the updated full 12-month data
-    const updated = db.prepare('SELECT * FROM monthly_kpi_data WHERE kpi_id = ?').all(id) as {
+    const updated = db.prepare('SELECT * FROM monthly_kpi_data WHERE kpi_id = ? AND year = ?').all(id, selectedYear) as {
       id: number;
       kpi_id: string;
+      year: number;
       month: string;
       target: number;
       actual: number | null;
@@ -149,6 +153,7 @@ export async function PUT(
 
     return NextResponse.json({
       kpiId: id,
+      year: selectedYear,
       monthlyData: fullYear,
     });
   } catch (error) {

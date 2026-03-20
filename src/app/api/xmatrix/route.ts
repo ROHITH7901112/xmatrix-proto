@@ -2,7 +2,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllXMatrices, createXMatrix, getXMatrixById, getDatabase } from '@/lib/db';
-import { seedDatabase } from '@/lib/seed';
 
 // Ensure database is initialized
 function initDatabase() {
@@ -15,15 +14,8 @@ export async function GET() {
         // Initialize database (creates tables if they don't exist)
         initDatabase();
 
-        // Check if database has data
+        // Return existing data only (no automatic mock-data seeding)
         const matrices = getAllXMatrices();
-
-        if (matrices.length === 0 || (matrices.length > 0 && matrices[0].longTermObjectives.length === 0)) {
-            // Seed database if empty or has no objectives
-            seedDatabase();
-            const seededMatrices = getAllXMatrices();
-            return NextResponse.json(seededMatrices);
-        }
 
         return NextResponse.json(matrices);
     } catch (error) {

@@ -11,7 +11,9 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
     try {
         const { id } = await params;
-        const kpi = getKPIById(id);
+        const yearParam = request.nextUrl.searchParams.get('year');
+        const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+        const kpi = getKPIById(id, Number.isNaN(year) ? new Date().getFullYear() : year);
 
         if (!kpi) {
             return NextResponse.json(
@@ -36,7 +38,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const { id } = await params;
         const data = await request.json();
 
-        const updated = updateKPI(id, data);
+        const monthlyDataYear = typeof data.year === 'number' ? data.year : undefined;
+        const updated = updateKPI(id, { ...data, monthlyDataYear });
 
         if (!updated) {
             return NextResponse.json(
