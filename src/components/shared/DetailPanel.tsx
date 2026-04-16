@@ -1,12 +1,15 @@
 'use client';
 
 import { useXMatrixStore } from '@/lib/store';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import { cn, getHealthClass, getStatusLabel } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ExternalLink, Users, Target, Rocket, BarChart3 } from 'lucide-react';
+import { Initiative, LongTermObjective, AnnualObjective } from '@/lib/types';
 
 export function DetailPanel() {
   const { viewState, setSelectedElement, data } = useXMatrixStore();
+  const { colors } = useTheme();
   const { selectedElement } = viewState;
 
   if (!selectedElement) return null;
@@ -62,24 +65,26 @@ export function DetailPanel() {
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 20 }}
-        className="fixed right-4 top-20 w-80 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
+        className={cn("fixed right-4 top-20 w-80 rounded-xl shadow-2xl z-50 overflow-hidden border", colors.card)}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/80">
+        <div className={cn("flex items-center justify-between px-4 py-3 border-b", colors.border.light)}>
           <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-800">
+            <div className={cn("flex items-center justify-center w-8 h-8 rounded-lg", colors.bg.tertiary)}>
               <Icon className="w-4 h-4 text-blue-400" />
             </div>
             <div className="flex flex-col">
-              <span className="text-xs text-slate-500 uppercase tracking-wider">{getTypeLabel()}</span>
-              <span className="text-sm font-semibold text-white">
+              <span className={cn("text-xs uppercase tracking-wider", colors.text.tertiary)}>
+                {getTypeLabel()}
+              </span>
+              <span className={cn("text-sm font-semibold", colors.text.primary)}>
                 {'code' in elementData ? elementData.code : 'name' in elementData ? elementData.name : ''}
               </span>
             </div>
           </div>
           <button
             onClick={() => setSelectedElement(null)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className={cn("p-1.5 rounded-lg transition-colors", colors.text.secondary, "hover:" + colors.text.primary, "hover:" + colors.bg.tertiary)}
           >
             <X className="w-4 h-4" />
           </button>
@@ -89,11 +94,11 @@ export function DetailPanel() {
         <div className="p-4 space-y-4">
           {/* Title */}
           <div>
-            <h3 className="text-base font-semibold text-white mb-1">
+            <h3 className={cn("text-base font-semibold mb-1", colors.text.primary)}>
               {'title' in elementData ? elementData.title : 'name' in elementData ? elementData.name : ''}
             </h3>
             {'description' in elementData && (
-              <p className="text-sm text-slate-400">{elementData.description}</p>
+              <p className={cn("text-sm", colors.text.secondary)}>{elementData.description}</p>
             )}
           </div>
 
@@ -149,12 +154,47 @@ export function DetailPanel() {
           )}
 
           {/* Initiative dates */}
-          {selectedElement.type === 'initiative' && 'startDate' in elementData && (
-            <div className="flex items-center gap-4 text-xs text-slate-400">
-              <span>Start: {elementData.startDate}</span>
-              <span>End: {elementData.endDate}</span>
+          {selectedElement.type === 'initiative' && 'startDate' in elementData && (() => {
+            const initiative = elementData as Initiative;
+            return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-4 text-xs text-slate-400">
+                <span>Start: {initiative.startDate}</span>
+                <span>End: {initiative.endDate}</span>
+              </div>
+              {(initiative.jiraIssueKey || initiative.jiraIssueUrl) && (
+                <a
+                  href={initiative.jiraIssueUrl || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Jira {initiative.jiraIssueType === 'task' ? 'Task' : 'Story'}: {initiative.jiraIssueKey || 'Open linked issue'}
+                </a>
+              )}
             </div>
-          )}
+            );
+          })()}
+
+          {((selectedElement.type === 'lto' || selectedElement.type === 'ao') && 'jiraEpicKey' in elementData) && (() => {
+            const objective = elementData as LongTermObjective | AnnualObjective;
+            return (
+              <>
+              {(objective.jiraEpicKey || objective.jiraEpicUrl) && (
+                <a
+                  href={objective.jiraEpicUrl || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Jira Epic: {objective.jiraEpicKey || 'Open linked epic'}
+                </a>
+              )}
+              </>
+            );
+          })()}
 
           {/* Actions */}
           <div className="flex items-center gap-2 pt-2 border-t border-slate-800">

@@ -2,9 +2,8 @@
 
 import { create } from 'zustand';
 import { ViewState, SelectedElement, HoveredElement, FilterState, XMatrixData, Relationship, RelationshipStrength, LongTermObjective, AnnualObjective, Initiative, KPI, Owner, EditModeState, MonthlyKPIData } from './types';
-// Do not seed UI with mock data by default; app will fetch real data via API
+// App fetches real data via API - no mock data fallback
 import { computeVariance, deriveHealth, deriveTrend, isLowerBetter, getCurrentValue } from './kpi-calculations';
-import { xMatrixData as mockData } from './mock-data';
 
 // Deep clone helper for draft state
 const deepClone = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
@@ -263,7 +262,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
   },
 
   getActiveData: () => {
-    const { editModeState, data } = get();
+    const { editModeState, data } = get(); // get() is from zustand which gets the current state of the store
     return editModeState.mode === 'edit' && editModeState.draftData
       ? editModeState.draftData
       : data;
@@ -854,7 +853,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
   },
 
   getRelatedElements: (elementId: string, elementType: string) => {
-    const activeData = get().getActiveData();
+    const activeData = get().getActiveData(); 
     const { relationships, longTermObjectives, annualObjectives, initiatives, kpis, owners } = activeData;
     const related = new Set<string>();
     related.add(elementId);
@@ -863,10 +862,10 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     const adjacency = new Map<string, Set<string>>();
 
     const addEdge = (a: string, b: string) => {
-      if (!adjacency.has(a)) adjacency.set(a, new Set());
+      if (!adjacency.has(a)) adjacency.set(a, new Set());  //.has() is a method of map which return true if a key exist in that map . In this case it check if a key exist in adjacency map . If not it create a new set for that key .
       if (!adjacency.has(b)) adjacency.set(b, new Set());
-      adjacency.get(a)!.add(b);
-      adjacency.get(b)!.add(a);
+      adjacency.get(a)!.add(b); // ! here tells TypeScript that we are sure adjacency.get(a) will not be undefined, so it's safe to call .add() on it. We can use this because we just initialized it in the lines above if it didn't exist.
+      adjacency.get(b)!.add(a); // .get() is a function of map . It return the value of a key . In this case it return a set() which we then give .add() to add another node to that set.
     };
 
     // 1. Index all explicit relationships (LTO↔AO, AO↔Init, Init↔KPI, etc.)
@@ -875,6 +874,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     }
 
     // 2. Index KPI↔Owner links from ownerIds (these are NOT in relationships[])
+    
     for (const kpi of kpis) {
       for (const ownerId of kpi.ownerIds) {
         addEdge(kpi.id, ownerId);
@@ -902,12 +902,13 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
 
     // ── BFS traversal in a given direction ────────────────────────────
     const traverseDirection = (startId: string, startType: string, direction: 'up' | 'down') => {
+        
       const queue: { id: string; type: string }[] = [{ id: startId, type: startType }];
       const visited = new Set<string>();
       visited.add(startId);
 
-      while (queue.length > 0) {
-        const current = queue.shift()!;
+      while (queue.length > 0) { 
+        const current = queue.shift()!; 
         const currentRank = getRank(current.type);
         const neighbors = adjacency.get(current.id);
         if (!neighbors) continue;
@@ -971,13 +972,13 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     return related;
   },
 
-  getHighlightedElements: () => {
+  getHighlightedElements: () => { 
     const { viewState } = get();
     const activeElement = viewState.hoveredElement || viewState.selectedElement;
 
-    if (!activeElement) return new Set<string>();
+    if (!activeElement) return new Set<string>(); 
 
-    return get().getRelatedElements(activeElement.id, activeElement.type);
+    return get().getRelatedElements(activeElement.id, activeElement.type); 
   },
 
   getActiveRelationships: () => {

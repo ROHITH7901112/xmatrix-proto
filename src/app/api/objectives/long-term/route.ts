@@ -45,6 +45,8 @@ export async function POST(request: NextRequest) {
             description: data.description || '',
             timeframe: data.timeframe || '',
             health: data.health || 'on-track',
+            jiraEpicKey: data.jiraEpicKey || undefined,
+            jiraEpicUrl: data.jiraEpicUrl || undefined,
         });
 
         return NextResponse.json(objective, { status: 201 });

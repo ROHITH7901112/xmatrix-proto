@@ -39,7 +39,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         const data = await request.json();
 
         const monthlyDataYear = typeof data.year === 'number' ? data.year : undefined;
-        const updated = updateKPI(id, { ...data, monthlyDataYear });
+        const updated = updateKPI(id, { ...data, monthlyDataYear }); 
 
         if (!updated) {
             return NextResponse.json(

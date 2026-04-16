@@ -1,6 +1,7 @@
 'use client';
 
 import { useXMatrixStore } from '@/lib/store';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getHealthColor, getRelationshipColor, getRelationshipDotSize, cn } from '@/lib/utils';
 import { KPI, Owner, Relationship, EntityType } from '@/lib/types';
@@ -63,7 +64,7 @@ export function XMatrix() {
   const reversedAOs = useMemo(() => [...data.annualObjectives].reverse(), [data.annualObjectives]);
 
   // ── Highlight helpers ────────────────────────────────────────────────
-  const isHighlighted = useCallback((id: string) => {
+  const isHighlighted = useCallback((id: string) => { 
     if (!hasHighlight) return true;
     return highlightedElements.has(id);
   }, [hasHighlight, highlightedElements]);
@@ -369,7 +370,7 @@ interface RelGridProps {
   onCellHover?: (hoveredElement: null) => void;
 }
 
-function RelGrid({
+function RelGrid({ 
   rows, cols, rowType, colType,
   ox, oy, bandW, bandH,
   actualRows, actualCols,

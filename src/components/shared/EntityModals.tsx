@@ -1,6 +1,8 @@
 'use client';
+//what is the purpose of this file? what components does it export? it contains modal and form components for creating/editing Long-Term Objectives (LTOs), Annual Objectives (AOs), Initiatives, and KPIs. These components are designed to be reusable across the application, providing a consistent UI and handling form state management for these entities. The file exports the following components: they are 
 
 import { useState } from 'react';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Save, Loader2, Trash2 } from 'lucide-react';
 import { LongTermObjective, AnnualObjective, Initiative, KPI, Owner, HealthStatus, ResponsibilityType, Trend, TargetDistribution, KPI_UNITS } from '@/lib/types';
@@ -23,6 +25,7 @@ function getNextCode(existingCodes: string[], prefix: string): string {
 
 // Modal component
 export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+    const { colors } = useTheme();
     if (!isOpen) return null;
 
     return (
@@ -31,7 +34,7 @@ export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; o
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                className={cn("fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm", colors.bg.overlay)}
                 onClick={onClose}
             >
                 <motion.div
@@ -39,11 +42,11 @@ export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; o
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0.95, opacity: 0 }}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-full max-w-lg bg-slate-900 rounded-xl border border-slate-700 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                    className={cn("w-full max-w-lg rounded-xl border shadow-2xl overflow-hidden max-h-[90vh] flex flex-col", colors.card)}
                 >
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 flex-shrink-0">
-                        <h2 className="text-lg font-semibold text-white">{title}</h2>
-                        <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                    <div className={cn("flex items-center justify-between px-6 py-4 border-b flex-shrink-0", colors.border.light)}>
+                        <h2 className={cn("text-lg font-semibold", colors.text.primary)}>{title}</h2>
+                        <button onClick={onClose} className={cn("p-1 rounded-lg transition-colors", colors.text.secondary, "hover:" + colors.text.primary, "hover:" + colors.bg.tertiary)}>
                             <X className="w-5 h-5" />
                         </button>
                     </div>
@@ -56,12 +59,13 @@ export function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; o
 
 // Form input component
 export function FormInput({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+    const { colors } = useTheme();
     return (
         <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-slate-300">{label}</label>
+            <label className={cn("block text-sm font-medium", colors.text.secondary)}>{label}</label>
             <input
                 {...props}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className={cn("w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all", colors.input)}
             />
         </div>
     );
@@ -487,28 +491,44 @@ export function KPIForm({
     );
 
     const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const distributedTargets = computeDistributedTargets(
+        e.preventDefault(); 
+
+        // Check if target calculation parameters changed
+        const targetParamsChanged =
+            !initialData ||
+            initialData.targetValue !== formData.targetValue ||
+            initialData.startDate !== formData.startDate ||
+            initialData.endDate !== formData.endDate ||
+            initialData.targetDistribution !== formData.targetDistribution;
+
+        let monthlyData: (typeof formData.monthlyData) = []; 
+
+        if (targetParamsChanged) {
+            // Recalculate targets if parameters changed, but preserve actuals
+            const distributedTargets = computeDistributedTargets(
             formData.targetValue,
             formData.startDate || '',
             formData.endDate || '',
             formData.targetDistribution || 'equal',
             formData.currentValue,
-        );
+            );
 
-        // Preserve existing entered actuals/variance on edit while refreshing targets.
-        const existingByMonth = new Map(
-            (initialData?.monthlyData ?? []).map((m) => [m.month, m])
-        );
-        const monthlyData = distributedTargets.map((m) => {
+            const existingByMonth = new Map(
+            (initialData?.monthlyData ?? []).map((m) => [m.month, m]) 
+            );
+            monthlyData = distributedTargets.map((m) => {
             const existing = existingByMonth.get(m.month);
             return {
-                ...m,
+                ...m, //
                 actual: existing?.actual ?? m.actual,
                 variance: existing?.variance ?? m.variance,
                 year: existing?.year,
             };
-        });
+            });
+        } else {
+            // Target parameters didn't change, preserve all existing monthly data
+            monthlyData = initialData?.monthlyData ?? [];
+        }
         
         // Calculate health and trend automatically from monthly data
         const lowerBetter = isLowerBetter(formData.unit, formData.code);

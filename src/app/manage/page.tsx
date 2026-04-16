@@ -629,28 +629,48 @@ function KPIForm({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const distributedTargets = computeDistributedTargets(
-            formData.targetValue,
-            formData.startDate || '',
-            formData.endDate || '',
-            formData.targetDistribution || 'equal',
-            formData.currentValue,
-        );
 
-        const existingByMonth = new Map(
-            (initialData?.monthlyData ?? []).map((m) => [m.month, m])
-        );
-        const monthlyData = distributedTargets.map((m) => {
-            const existing = existingByMonth.get(m.month);
-            return {
-                ...m,
-                actual: existing?.actual ?? m.actual,
-                variance: null,
-            };
-        });
+        // Check if target calculation parameters changed
+        const targetParamsChanged =
+            !initialData ||
+            initialData.targetValue !== formData.targetValue ||
+            initialData.startDate !== formData.startDate ||
+            initialData.endDate !== formData.endDate ||
+            initialData.targetDistribution !== formData.targetDistribution;
+
+        let monthlyData: { month: string; target: number; actual: number | null; variance: null }[];
+
+        if (targetParamsChanged) {
+            // Recalculate targets if parameters changed, but preserve actuals
+            const distributedTargets = computeDistributedTargets(
+                formData.targetValue,
+                formData.startDate || '',
+                formData.endDate || '',
+                formData.targetDistribution || 'equal',
+                formData.currentValue,
+            );
+
+            const existingByMonth = new Map(
+                (initialData?.monthlyData ?? []).map((m) => [m.month, m])
+            );
+            monthlyData = distributedTargets.map((m) => { 
+                const existing = existingByMonth.get(m.month);
+                return {
+                    ...m,
+                    actual: existing?.actual ?? m.actual, // what does m mean here 
+                    variance: null,
+                };
+            });
+        } else {
+            // Target parameters didn't change, preserve all existing monthly data (but normalize variance to null)
+            monthlyData = (initialData?.monthlyData ?? []).map((m) => ({ 
+                ...m, 
+                variance: null, 
+            }));
+        }
 
         onSubmit({
-            ...formData,
+            ...formData, 
             monthlyData,
         });
     };

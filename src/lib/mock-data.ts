@@ -1,4 +1,16 @@
-// Enterprise Mock Data for Hoshin Kanri X-Matrix
+/**
+ * DEPRECATED: Mock data is no longer used in the application.
+ * 
+ * This file has been retained for reference only.
+ * All data should now be created via the API endpoints:
+ * - POST /api/xmatrix - Create new X-Matrix
+ * - POST /api/owners - Create owners
+ * - POST /api/kpis - Create KPIs
+ * - etc.
+ * 
+ * This module is NOT imported or used anywhere in the application.
+ * It can be safely deleted if not needed for documentation purposes.
+ */
 
 import { XMatrixData, Owner, LongTermObjective, AnnualObjective, Initiative, KPI, Relationship, MonthlyKPIData } from './types';
 
@@ -17,7 +29,7 @@ const generateMonthlyData = (baseTarget: number, variance: number = 0.1): Monthl
       month,
       target: Math.round(target * 100) / 100,
       actual: actual !== null ? Math.round(actual * 100) / 100 : null,
-      variance: actual !== null ? Math.round(((actual - target) / target) * 100) : null,
+      variance: actual !== null ? Math.round((actual - target) * 100) / 100 : null,
     };
   });
 };

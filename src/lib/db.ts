@@ -54,6 +54,22 @@ function runMigrations(): void {
   addColumn('kpis', 'start_date', 'TEXT');
   addColumn('kpis', 'end_date', 'TEXT');
   addColumn('kpis', 'target_distribution', "TEXT DEFAULT 'equal'");
+  addColumn('long_term_objectives', 'jira_epic_key', 'TEXT');
+  addColumn('long_term_objectives', 'jira_epic_url', 'TEXT');
+  addColumn('long_term_objectives', 'jira_last_synced', 'INTEGER');
+  addColumn('long_term_objectives', 'jira_sync_status', "TEXT CHECK(jira_sync_status IN ('synced', 'pending', 'error'))");
+  addColumn('long_term_objectives', 'jira_sync_error', 'TEXT');
+  addColumn('annual_objectives', 'jira_epic_key', 'TEXT');
+  addColumn('annual_objectives', 'jira_epic_url', 'TEXT');
+  addColumn('annual_objectives', 'jira_last_synced', 'INTEGER');
+  addColumn('annual_objectives', 'jira_sync_status', "TEXT CHECK(jira_sync_status IN ('synced', 'pending', 'error'))");
+  addColumn('annual_objectives', 'jira_sync_error', 'TEXT');
+  addColumn('initiatives', 'jira_issue_type', "TEXT CHECK(jira_issue_type IN ('story', 'task'))");
+  addColumn('initiatives', 'jira_issue_key', 'TEXT');
+  addColumn('initiatives', 'jira_issue_url', 'TEXT');
+  addColumn('initiatives', 'jira_last_synced', 'INTEGER');
+  addColumn('initiatives', 'jira_sync_status', "TEXT CHECK(jira_sync_status IN ('synced', 'pending', 'error'))");
+  addColumn('initiatives', 'jira_sync_error', 'TEXT');
   
   // Check if year column exists in monthly_kpi_data table
   try {
@@ -295,6 +311,8 @@ export function getLongTermObjectivesByXMatrix(xmatrixId: string): LongTermObjec
     description: string;
     timeframe: string;
     health: string;
+    jira_epic_key: string | null;
+    jira_epic_url: string | null;
   }[];
   
   return rows.map(row => ({
@@ -304,6 +322,8 @@ export function getLongTermObjectivesByXMatrix(xmatrixId: string): LongTermObjec
     description: row.description,
     timeframe: row.timeframe,
     health: row.health as HealthStatus,
+    jiraEpicKey: row.jira_epic_key ?? undefined,
+    jiraEpicUrl: row.jira_epic_url ?? undefined,
   }));
 }
 
@@ -316,6 +336,8 @@ export function getLongTermObjectiveById(id: string): LongTermObjective | null {
     description: string;
     timeframe: string;
     health: string;
+    jira_epic_key: string | null;
+    jira_epic_url: string | null;
   } | undefined;  
   
   if (!row) return null;
@@ -327,17 +349,19 @@ export function getLongTermObjectiveById(id: string): LongTermObjective | null {
     description: row.description,
     timeframe: row.timeframe,
     health: row.health as HealthStatus,
+    jiraEpicKey: row.jira_epic_key ?? undefined,
+    jiraEpicUrl: row.jira_epic_url ?? undefined,
   };
 }
 
 export function createLongTermObjective(xmatrixId: string, data: LongTermObjective): LongTermObjective {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health, jira_epic_key, jira_epic_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
-  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.timeframe, data.health);
+  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.timeframe, data.health, data.jiraEpicKey ?? null, data.jiraEpicUrl ?? null);
   return getLongTermObjectiveById(data.id)!; //the purpose of the ! at the end of this line? It is a non-null assertion operator in TypeScript. It tells the TypeScript compiler that we are certain that the value returned by getLongTermObjectiveById(data.id) will not be null or undefined. In this context, since we just inserted a new long-term objective with data.id, we expect that fetching it immediately afterward will succeed and return a valid LongTermObjective object. By using the ! operator, we avoid having to handle the case where it might return null, which simplifies our code. However, it's important to use this operator with caution, as it can lead to runtime errors if our assumption is incorrect.
 }
 
@@ -347,7 +371,7 @@ export function updateLongTermObjective(id: string, data: Partial<LongTermObject
   if (!current) return null;
   
   const stmt = db.prepare(`
-    UPDATE long_term_objectives SET code = ?, title = ?, description = ?, timeframe = ?, health = ?
+    UPDATE long_term_objectives SET code = ?, title = ?, description = ?, timeframe = ?, health = ?, jira_epic_key = ?, jira_epic_url = ?
     WHERE id = ?
   `); 
   
@@ -357,6 +381,8 @@ export function updateLongTermObjective(id: string, data: Partial<LongTermObject
     data.description ?? current.description,
     data.timeframe ?? current.timeframe,
     data.health ?? current.health,
+    data.jiraEpicKey ?? current.jiraEpicKey ?? null,
+    data.jiraEpicUrl ?? current.jiraEpicUrl ?? null,
     id
   );
   
@@ -383,6 +409,8 @@ export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective
     year: number;
     health: string;
     progress: number;
+    jira_epic_key: string | null;
+    jira_epic_url: string | null;
   }[];
   
   return rows.map(row => ({
@@ -393,6 +421,8 @@ export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective
     year: row.year,
     health: row.health as HealthStatus,
     progress: row.progress,
+    jiraEpicKey: row.jira_epic_key ?? undefined,
+    jiraEpicUrl: row.jira_epic_url ?? undefined,
   }));
 }
 
@@ -406,6 +436,8 @@ export function getAnnualObjectiveById(id: string): AnnualObjective | null {
     year: number;
     health: string;
     progress: number;
+    jira_epic_key: string | null;
+    jira_epic_url: string | null;
   } | undefined;
   
   if (!row) return null;
@@ -418,17 +450,19 @@ export function getAnnualObjectiveById(id: string): AnnualObjective | null {
     year: row.year,
     health: row.health as HealthStatus,
     progress: row.progress,
+    jiraEpicKey: row.jira_epic_key ?? undefined,
+    jiraEpicUrl: row.jira_epic_url ?? undefined,
   };
 }
 
 export function createAnnualObjective(xmatrixId: string, data: AnnualObjective): AnnualObjective {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress, jira_epic_key, jira_epic_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
-  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.year, data.health, data.progress); 
+  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.year, data.health, data.progress, data.jiraEpicKey ?? null, data.jiraEpicUrl ?? null); 
   return getAnnualObjectiveById(data.id)!;
 }
 
@@ -438,7 +472,7 @@ export function updateAnnualObjective(id: string, data: Partial<AnnualObjective>
   if (!current) return null;
   
   const stmt = db.prepare(`
-    UPDATE annual_objectives SET code = ?, title = ?, description = ?, year = ?, health = ?, progress = ?
+    UPDATE annual_objectives SET code = ?, title = ?, description = ?, year = ?, health = ?, progress = ?, jira_epic_key = ?, jira_epic_url = ?
     WHERE id = ?
   `);
   
@@ -449,6 +483,8 @@ export function updateAnnualObjective(id: string, data: Partial<AnnualObjective>
     data.year ?? current.year,
     data.health ?? current.health,
     data.progress ?? current.progress,
+    data.jiraEpicKey ?? current.jiraEpicKey ?? null,
+    data.jiraEpicUrl ?? current.jiraEpicUrl ?? null,
     id
   );
   
@@ -476,6 +512,12 @@ export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] {
     health: string;
     start_date: string;
     end_date: string;
+    jira_issue_type: 'story' | 'task' | null;
+    jira_issue_key: string | null;
+    jira_issue_url: string | null;
+    jira_last_synced: number | null;
+    jira_sync_status: 'synced' | 'pending' | 'error' | null;
+    jira_sync_error: string | null;
   }[];
   
   return rows.map(row => ({
@@ -487,6 +529,12 @@ export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] {
     health: row.health as HealthStatus,
     startDate: row.start_date,
     endDate: row.end_date,
+    jiraIssueType: row.jira_issue_type ?? undefined,
+    jiraIssueKey: row.jira_issue_key ?? undefined,
+    jiraIssueUrl: row.jira_issue_url ?? undefined,
+    jiraLastSynced: row.jira_last_synced ?? undefined,
+    jiraSyncStatus: row.jira_sync_status ?? undefined,
+    jiraSyncError: row.jira_sync_error ?? undefined,
   }));
 }
 
@@ -501,6 +549,12 @@ export function getInitiativeById(id: string): Initiative | null {
     health: string;
     start_date: string;
     end_date: string;
+    jira_issue_type: 'story' | 'task' | null;
+    jira_issue_key: string | null;
+    jira_issue_url: string | null;
+    jira_last_synced: number | null;
+    jira_sync_status: 'synced' | 'pending' | 'error' | null;
+    jira_sync_error: string | null; // stores the error message
   } | undefined;
   
   if (!row) return null;
@@ -514,17 +568,46 @@ export function getInitiativeById(id: string): Initiative | null {
     health: row.health as HealthStatus,
     startDate: row.start_date,
     endDate: row.end_date,
+    jiraIssueType: row.jira_issue_type ?? undefined,
+    jiraIssueKey: row.jira_issue_key ?? undefined,
+    jiraIssueUrl: row.jira_issue_url ?? undefined,
+    jiraLastSynced: row.jira_last_synced ?? undefined,
+    jiraSyncStatus: row.jira_sync_status ?? undefined,
+    jiraSyncError: row.jira_sync_error ?? undefined,
   };
+}
+
+export function getInitiativeByJiraIssueKey(jiraIssueKey: string): Initiative | null {
+  const db = getDatabase();
+  const row = db.prepare('SELECT id FROM initiatives WHERE jira_issue_key = ?').get(jiraIssueKey) as { id: string } | undefined;
+  if (!row) return null;
+  return getInitiativeById(row.id);
 }
 
 export function createInitiative(xmatrixId: string, data: Initiative): Initiative {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, start_date, end_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, start_date, end_date, jira_issue_type, jira_issue_key, jira_issue_url, jira_last_synced, jira_sync_status, jira_sync_error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
-  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.priority, data.health, data.startDate, data.endDate);
+  stmt.run(
+    data.id,
+    xmatrixId,
+    data.code,
+    data.title,
+    data.description,
+    data.priority,
+    data.health,
+    data.startDate,
+    data.endDate,
+    data.jiraIssueType ?? null,
+    data.jiraIssueKey ?? null,
+    data.jiraIssueUrl ?? null,
+    data.jiraLastSynced ?? null,
+    data.jiraSyncStatus ?? null,
+    data.jiraSyncError ?? null,
+  );
   return getInitiativeById(data.id)!;
 }
 
@@ -534,7 +617,7 @@ export function updateInitiative(id: string, data: Partial<Initiative>): Initiat
   if (!current) return null;
   
   const stmt = db.prepare(`
-    UPDATE initiatives SET code = ?, title = ?, description = ?, priority = ?, health = ?, start_date = ?, end_date = ?
+    UPDATE initiatives SET code = ?, title = ?, description = ?, priority = ?, health = ?, start_date = ?, end_date = ?, jira_issue_type = ?, jira_issue_key = ?, jira_issue_url = ?, jira_last_synced = ?, jira_sync_status = ?, jira_sync_error = ?
     WHERE id = ?
   `);
   
@@ -546,6 +629,12 @@ export function updateInitiative(id: string, data: Partial<Initiative>): Initiat
     data.health ?? current.health,
     data.startDate ?? current.startDate,
     data.endDate ?? current.endDate,
+    data.jiraIssueType ?? current.jiraIssueType ?? null,
+    data.jiraIssueKey ?? current.jiraIssueKey ?? null,
+    data.jiraIssueUrl ?? current.jiraIssueUrl ?? null,
+    data.jiraLastSynced ?? current.jiraLastSynced ?? null,
+    data.jiraSyncStatus ?? current.jiraSyncStatus ?? null,
+    data.jiraSyncError ?? current.jiraSyncError ?? null,
     id
   );
   
@@ -682,6 +771,12 @@ export function updateKPI(id: string, data: Partial<KPI> & { monthlyDataYear?: n
   const db = getDatabase();
   const current = getKPIById(id);
   if (!current) return null;
+  const kpiRow = db.prepare('SELECT xmatrix_id FROM kpis WHERE id = ?').get(id) as { xmatrix_id: string } | undefined;
+
+  const normalizeDate = (value: string | undefined | null) => (value && value.trim() !== '' ? value : null);
+  const currentStart = normalizeDate(current.startDate ?? null);
+  const currentEnd = normalizeDate(current.endDate ?? null);
+  const currentDistribution = current.targetDistribution ?? 'equal';
   
   const stmt = db.prepare(` 
     UPDATE kpis SET code = ?, title = ?, unit = ?, current_value = ?, target_value = ?, health = ?, trend = ?, owner_ids = ?, start_date = ?, end_date = ?, target_distribution = ?
@@ -702,9 +797,21 @@ export function updateKPI(id: string, data: Partial<KPI> & { monthlyDataYear?: n
     data.targetDistribution ?? current.targetDistribution ?? 'equal',
     id
   );
+  // 
+  const targetInputsChanged =
+    (data.targetValue !== undefined && data.targetValue !== current.targetValue) ||
+    (data.startDate !== undefined && normalizeDate(data.startDate) !== currentStart) ||
+    (data.endDate !== undefined && normalizeDate(data.endDate) !== currentEnd) ||
+    (data.targetDistribution !== undefined && data.targetDistribution !== currentDistribution);
 
-  // If monthlyData is provided, update monthly KPI data
-  if (data.monthlyData && Array.isArray(data.monthlyData) && data.monthlyData.length > 0) {
+  // Only rewrite monthly rows when distribution-driving inputs changed (or a specific year is requested).
+  // This prevents owner-only / metadata edits from wiping existing Bowling Chart actuals.
+  if (
+    data.monthlyData &&
+    Array.isArray(data.monthlyData) &&
+    data.monthlyData.length > 0 &&
+    (targetInputsChanged || data.monthlyDataYear !== undefined) // 
+  ) {
     const fallbackYear = current.startDate
       ? new Date(current.startDate).getFullYear()
       : new Date().getFullYear();
@@ -726,6 +833,10 @@ export function updateKPI(id: string, data: Partial<KPI> & { monthlyDataYear?: n
       monthlyInsert.run(id, m.year ?? defaultYear, m.month, m.target, nextActual, nextVariance);
     }
   }
+
+  if (kpiRow?.xmatrix_id) {
+    recomputeRolledUpHealth(kpiRow.xmatrix_id);
+  }
   
   return getKPIById(id);
 }
@@ -737,6 +848,109 @@ export function deleteKPI(id: string): boolean {
   // Monthly data will be cascade deleted
   const result = db.prepare('DELETE FROM kpis WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+function aggregateHealthFromChildren(statuses: HealthStatus[]): HealthStatus | null { 
+  if (statuses.length === 0) return null;
+  if (statuses.includes('off-track')) return 'off-track';
+  if (statuses.includes('at-risk')) return 'at-risk';
+  if (statuses.includes('on-track')) return 'on-track';
+  return null;
+}
+
+function recomputeRolledUpHealth(xmatrixId: string): void {
+  const db = getDatabase();
+
+  // ---------- Initiative health from directly related KPI health ----------
+  const initiativeKpiRows = db.prepare(`
+    SELECT
+      CASE WHEN r.source_type = 'initiative' THEN r.source_id ELSE r.target_id END AS initiative_id,
+      k.health AS child_health
+    FROM relationships r
+    JOIN kpis k ON k.id = CASE WHEN r.source_type = 'kpi' THEN r.source_id ELSE r.target_id END
+    WHERE r.xmatrix_id = ?
+      AND (
+        (r.source_type = 'initiative' AND r.target_type = 'kpi') OR
+        (r.source_type = 'kpi' AND r.target_type = 'initiative')
+      )
+  `).all(xmatrixId) as { initiative_id: string; child_health: HealthStatus }[];
+
+  const initiativeHealthById = new Map<string, HealthStatus[]>();
+  for (const row of initiativeKpiRows) {
+    if (!initiativeHealthById.has(row.initiative_id)) initiativeHealthById.set(row.initiative_id, []);
+    initiativeHealthById.get(row.initiative_id)!.push(row.child_health);
+  }
+
+  const updateInitiativeHealth = db.prepare('UPDATE initiatives SET health = ? WHERE id = ?');
+  for (const [initiativeId, statuses] of initiativeHealthById) {
+    const next = aggregateHealthFromChildren(statuses);
+    if (next) updateInitiativeHealth.run(next, initiativeId);
+  }
+
+  // ---------- Annual objective health from related initiatives + direct KPIs ----------
+  const aoInitiativeRows = db.prepare(`
+    SELECT
+      CASE WHEN r.source_type = 'ao' THEN r.source_id ELSE r.target_id END AS ao_id,
+      i.health AS child_health
+    FROM relationships r
+    JOIN initiatives i ON i.id = CASE WHEN r.source_type = 'initiative' THEN r.source_id ELSE r.target_id END
+    WHERE r.xmatrix_id = ?
+      AND (
+        (r.source_type = 'ao' AND r.target_type = 'initiative') OR
+        (r.source_type = 'initiative' AND r.target_type = 'ao')
+      )
+  `).all(xmatrixId) as { ao_id: string; child_health: HealthStatus }[];
+
+  const aoKpiRows = db.prepare(`
+    SELECT
+      CASE WHEN r.source_type = 'ao' THEN r.source_id ELSE r.target_id END AS ao_id,
+      k.health AS child_health
+    FROM relationships r
+    JOIN kpis k ON k.id = CASE WHEN r.source_type = 'kpi' THEN r.source_id ELSE r.target_id END
+    WHERE r.xmatrix_id = ?
+      AND (
+        (r.source_type = 'ao' AND r.target_type = 'kpi') OR
+        (r.source_type = 'kpi' AND r.target_type = 'ao')
+      )
+  `).all(xmatrixId) as { ao_id: string; child_health: HealthStatus }[];
+
+  const aoHealthById = new Map<string, HealthStatus[]>();
+  for (const row of [...aoInitiativeRows, ...aoKpiRows]) {
+    if (!aoHealthById.has(row.ao_id)) aoHealthById.set(row.ao_id, []);
+    aoHealthById.get(row.ao_id)!.push(row.child_health);
+  }
+
+  const updateAOHealth = db.prepare('UPDATE annual_objectives SET health = ? WHERE id = ?');
+  for (const [aoId, statuses] of aoHealthById) {
+    const next = aggregateHealthFromChildren(statuses);
+    if (next) updateAOHealth.run(next, aoId);
+  }
+
+  // ---------- Long-term objective health from related annual objectives ----------
+  const ltoAoRows = db.prepare(`
+    SELECT
+      CASE WHEN r.source_type = 'lto' THEN r.source_id ELSE r.target_id END AS lto_id,
+      ao.health AS child_health
+    FROM relationships r
+    JOIN annual_objectives ao ON ao.id = CASE WHEN r.source_type = 'ao' THEN r.source_id ELSE r.target_id END
+    WHERE r.xmatrix_id = ?
+      AND (
+        (r.source_type = 'lto' AND r.target_type = 'ao') OR
+        (r.source_type = 'ao' AND r.target_type = 'lto')
+      )
+  `).all(xmatrixId) as { lto_id: string; child_health: HealthStatus }[];
+
+  const ltoHealthById = new Map<string, HealthStatus[]>();
+  for (const row of ltoAoRows) {
+    if (!ltoHealthById.has(row.lto_id)) ltoHealthById.set(row.lto_id, []);
+    ltoHealthById.get(row.lto_id)!.push(row.child_health);
+  }
+
+  const updateLTOHealth = db.prepare('UPDATE long_term_objectives SET health = ? WHERE id = ?');
+  for (const [ltoId, statuses] of ltoHealthById) {
+    const next = aggregateHealthFromChildren(statuses);
+    if (next) updateLTOHealth.run(next, ltoId);
+  }
 }
 
 // ============ Monthly KPI Data ============
@@ -911,12 +1125,12 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
     try {
       // --- Long-Term Objectives ---
       const ltoDiff = diff(original.longTermObjectives, draft.longTermObjectives);
-      const ltoInsert = db.prepare('INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health) VALUES (?, ?, ?, ?, ?, ?, ?)');
-      const ltoUpdate = db.prepare('UPDATE long_term_objectives SET code=?, title=?, description=?, timeframe=?, health=? WHERE id=?');
+      const ltoInsert = db.prepare('INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health, jira_epic_key, jira_epic_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      const ltoUpdate = db.prepare('UPDATE long_term_objectives SET code=?, title=?, description=?, timeframe=?, health=?, jira_epic_key=?, jira_epic_url=? WHERE id=?');
       const ltoDelete = db.prepare('DELETE FROM long_term_objectives WHERE id=?');
       const ltoRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
-      for (const e of ltoDiff.added) ltoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.timeframe, e.health);
-      for (const e of ltoDiff.updated) ltoUpdate.run(e.code, e.title, e.description, e.timeframe, e.health, e.id);
+      for (const e of ltoDiff.added) ltoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.timeframe, e.health, e.jiraEpicKey ?? null, e.jiraEpicUrl ?? null);
+      for (const e of ltoDiff.updated) ltoUpdate.run(e.code, e.title, e.description, e.timeframe, e.health, e.jiraEpicKey ?? null, e.jiraEpicUrl ?? null, e.id);
       for (const e of ltoDiff.deleted) {
         ltoRelDelete.run(e.id, e.id);
         ltoDelete.run(e.id);
@@ -924,12 +1138,12 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
 
     // --- Annual Objectives ---
     const aoDiff = diff(original.annualObjectives, draft.annualObjectives);
-    const aoInsert = db.prepare('INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    const aoUpdate = db.prepare('UPDATE annual_objectives SET code=?, title=?, description=?, year=?, health=?, progress=? WHERE id=?');
+    const aoInsert = db.prepare('INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress, jira_epic_key, jira_epic_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const aoUpdate = db.prepare('UPDATE annual_objectives SET code=?, title=?, description=?, year=?, health=?, progress=?, jira_epic_key=?, jira_epic_url=? WHERE id=?');
     const aoDelete = db.prepare('DELETE FROM annual_objectives WHERE id=?');
     const aoRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
-    for (const e of aoDiff.added) aoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.year, e.health, e.progress);
-    for (const e of aoDiff.updated) aoUpdate.run(e.code, e.title, e.description, e.year, e.health, e.progress, e.id);
+    for (const e of aoDiff.added) aoInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.year, e.health, e.progress, e.jiraEpicKey ?? null, e.jiraEpicUrl ?? null);
+    for (const e of aoDiff.updated) aoUpdate.run(e.code, e.title, e.description, e.year, e.health, e.progress, e.jiraEpicKey ?? null, e.jiraEpicUrl ?? null, e.id);
     for (const e of aoDiff.deleted) {
       aoRelDelete.run(e.id, e.id);
       aoDelete.run(e.id);
@@ -937,12 +1151,12 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
 
     // --- Initiatives ---
     const initDiff = diff(original.initiatives, draft.initiatives);
-    const initInsert = db.prepare('INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    const initUpdate = db.prepare('UPDATE initiatives SET code=?, title=?, description=?, priority=?, health=?, start_date=?, end_date=? WHERE id=?');
+    const initInsert = db.prepare('INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, start_date, end_date, jira_issue_type, jira_issue_key, jira_issue_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const initUpdate = db.prepare('UPDATE initiatives SET code=?, title=?, description=?, priority=?, health=?, start_date=?, end_date=?, jira_issue_type=?, jira_issue_key=?, jira_issue_url=? WHERE id=?');
     const initDelete = db.prepare('DELETE FROM initiatives WHERE id=?');
     const initRelDelete = db.prepare('DELETE FROM relationships WHERE source_id = ? OR target_id = ?');
-    for (const e of initDiff.added) initInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate);
-    for (const e of initDiff.updated) initUpdate.run(e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate, e.id);
+    for (const e of initDiff.added) initInsert.run(e.id, xmatrixId, e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate, e.jiraIssueType ?? null, e.jiraIssueKey ?? null, e.jiraIssueUrl ?? null);
+    for (const e of initDiff.updated) initUpdate.run(e.code, e.title, e.description, e.priority, e.health, e.startDate, e.endDate, e.jiraIssueType ?? null, e.jiraIssueKey ?? null, e.jiraIssueUrl ?? null, e.id);
     for (const e of initDiff.deleted) {
       initRelDelete.run(e.id, e.id);
       initDelete.run(e.id);
@@ -1003,6 +1217,9 @@ export function bulkSyncEntities(xmatrixId: string, draft: XMatrixData, original
     // --- XMatrix metadata ---
     const metaUpdate = db.prepare('UPDATE xmatrix SET name=?, vision=?, true_north=?, period_start=?, period_end=?, themes=? WHERE id=?');
     metaUpdate.run(draft.name, draft.vision, draft.trueNorth, draft.periodStart, draft.periodEnd, JSON.stringify(draft.themes), xmatrixId);
+
+    // Recompute parent health (Initiatives/Objectives) from current KPI graph after sync
+    recomputeRolledUpHealth(xmatrixId);
     } catch (txnError) {
       console.error('Transaction error details:', txnError);
       throw txnError;
