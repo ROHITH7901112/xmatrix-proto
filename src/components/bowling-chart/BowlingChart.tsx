@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useXMatrixStore } from '@/lib/store';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import { cn, getHealthClass, getTrendColor, getStatusLabel } from '@/lib/utils';
 import { KPI, HealthStatus, Owner, MonthlyKPIData } from '@/lib/types';
 import {
@@ -91,6 +92,8 @@ interface SortState {
 // MAIN BOWLING CHART
 // ============================================================================
 export function BowlingChart() {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const { data, fetchData, setHoveredElement, setSelectedElement, updateMonthlyKpiData, loadBowlingChartYear } = useXMatrixStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -228,19 +231,19 @@ export function BowlingChart() {
   }, []);
 
   const SortIcon = useCallback(({ field }: { field: SortField }) => {
-    if (sort.field !== field) return <ArrowUpDown className="w-3 h-3 text-slate-600" />;
+    if (sort.field !== field) return <ArrowUpDown className={cn('w-3 h-3', isLight ? 'text-slate-500' : 'text-slate-600')} />;
     return sort.direction === 'asc'
       ? <ArrowUp className="w-3 h-3 text-blue-400" />
       : <ArrowDown className="w-3 h-3 text-blue-400" />;
-  }, [sort]);
+  }, [sort, isLight]);
 
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+      <div className={cn('flex items-center justify-between px-6 py-4 border-b', isLight ? 'border-slate-200' : 'border-slate-800')}>
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold text-white">KPI Scorecard</h2>
-          <span className="px-2 py-0.5 text-xs font-medium text-slate-400 bg-slate-800 rounded">
+          <h2 className={cn('text-lg font-semibold', isLight ? 'text-slate-900' : 'text-white')}>KPI Scorecard</h2>
+          <span className={cn('px-2 py-0.5 text-xs font-medium rounded', isLight ? 'text-slate-600 bg-slate-100' : 'text-slate-400 bg-slate-800')}>
             {sortedKpis.length} of {data.kpis.length} KPIs
           </span>
           {/* Year Selector */}
@@ -248,18 +251,18 @@ export function BowlingChart() {
             <button
               onClick={() => setSelectedYear(y => y - 1)}
               disabled={selectedYear <= minYear}
-              className="flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              className={cn('flex items-center justify-center w-7 h-7 rounded-md transition-colors', isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-slate-700')}
               title="Previous year"
             >
               ‹
             </button>
-            <span className="px-3 py-1 text-sm font-medium text-white bg-slate-800 rounded-md min-w-[80px] text-center">
+            <span className={cn('px-3 py-1 text-sm font-medium rounded-md min-w-[80px] text-center', isLight ? 'text-slate-900 bg-slate-100 border border-slate-200' : 'text-white bg-slate-800')}>
               {selectedYear}
             </span>
             <button
               onClick={() => setSelectedYear(y => y + 1)}
               disabled={selectedYear >= maxYear}
-              className="flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              className={cn('flex items-center justify-center w-7 h-7 rounded-md transition-colors', isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-slate-700')}
               title="Next year"
             >
               ›
@@ -270,13 +273,13 @@ export function BowlingChart() {
         <div className="flex items-center gap-2">
           {/* Search */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <Search className={cn('absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4', isLight ? 'text-slate-400' : 'text-slate-500')} />
             <input
               type="text"
               value={filters.search}
               onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
               placeholder="Search KPIs..."
-              className="pl-9 pr-4 py-2 w-64 text-sm bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className={cn('pl-9 pr-4 py-2 w-64 text-sm rounded-lg focus:outline-none focus:border-blue-500 transition-colors', isLight ? 'bg-white border border-slate-300 text-slate-900 placeholder-slate-400' : 'bg-slate-800/50 border border-slate-700 text-white placeholder-slate-500')}
             />
           </div>
 
@@ -287,7 +290,7 @@ export function BowlingChart() {
               'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors',
               showFilters || hasActiveFilters
                 ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white'
+                : isLight ? 'bg-white border-slate-300 text-slate-600 hover:text-slate-900' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white'
             )}
           >
             <Filter className="w-4 h-4" />
@@ -297,7 +300,7 @@ export function BowlingChart() {
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
-              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
+              className={cn('flex items-center gap-1 px-3 py-2 text-sm font-medium transition-colors', isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white')}
             >
               <X className="w-4 h-4" />
               Clear
@@ -313,12 +316,12 @@ export function BowlingChart() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-b border-slate-800"
+            className={cn('overflow-hidden border-b', isLight ? 'border-slate-200' : 'border-slate-800')}
           >
-            <div className="flex items-center gap-6 px-6 py-4 bg-slate-900/50">
+            <div className={cn('flex items-center gap-6 px-6 py-4', isLight ? 'bg-slate-50' : 'bg-slate-900/50')}>
               {/* Health Filter */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Status</span>
+                <span className={cn('text-xs font-medium uppercase tracking-wider', isLight ? 'text-slate-500' : 'text-slate-500')}>Status</span>
                 <div className="flex items-center gap-1">
                   {(['on-track', 'at-risk', 'off-track'] as HealthStatus[]).map((health) => (
                     <button
@@ -328,7 +331,7 @@ export function BowlingChart() {
                         'px-2.5 py-1 text-xs font-medium rounded-md border transition-colors',
                         filters.health === health
                           ? getHealthClass(health)
-                          : 'text-slate-400 border-slate-700 hover:border-slate-600'
+                            : isLight ? 'text-slate-600 border-slate-300 hover:border-slate-400 bg-white' : 'text-slate-400 border-slate-700 hover:border-slate-600'
                       )}
                     >
                       {getStatusLabel(health)}
@@ -339,11 +342,11 @@ export function BowlingChart() {
 
               {/* Owner Filter */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Owner</span>
+                <span className={cn('text-xs font-medium uppercase tracking-wider', isLight ? 'text-slate-500' : 'text-slate-500')}>Owner</span>
                 <select
                   value={filters.owner || ''}
                   onChange={(e) => setFilters((f) => ({ ...f, owner: e.target.value || null }))}
-                  className="px-3 py-1.5 text-sm bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className={cn('px-3 py-1.5 text-sm rounded-lg focus:outline-none focus:border-blue-500', isLight ? 'bg-white border border-slate-300 text-slate-900' : 'bg-slate-800 border border-slate-700 text-white')}
                 >
                   <option value="">All Owners</option>
                   {data.owners.map((owner) => (
@@ -361,10 +364,10 @@ export function BowlingChart() {
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full border-collapse">
-          <thead className="sticky top-0 z-10 bg-slate-900">
-            <tr className="border-b border-slate-800">
+          <thead className={cn('sticky top-0 z-10', isLight ? 'bg-white' : 'bg-slate-900')}>
+            <tr className={cn('border-b', isLight ? 'border-slate-200' : 'border-slate-800')}>
               <th
-                className="sticky left-0 z-20 bg-slate-900 px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider w-64 cursor-pointer hover:text-white transition-colors"
+                className={cn('sticky left-0 z-20 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider w-64 cursor-pointer transition-colors', isLight ? 'bg-white text-slate-500 hover:text-slate-900' : 'bg-slate-900 text-slate-400 hover:text-white')}
                 onClick={() => toggleSort('title')}
               >
                 <div className="flex items-center gap-1">
@@ -372,7 +375,7 @@ export function BowlingChart() {
                 </div>
               </th>
               <th
-                className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-20 cursor-pointer hover:text-white transition-colors"
+                className={cn('px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider w-20 cursor-pointer transition-colors', isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white')}
                 onClick={() => toggleSort('health')}
               >
                 <div className="flex items-center justify-center gap-1">
@@ -380,7 +383,7 @@ export function BowlingChart() {
                 </div>
               </th>
               <th
-                className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-16 cursor-pointer hover:text-white transition-colors"
+                className={cn('px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider w-16 cursor-pointer transition-colors', isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white')}
                 onClick={() => toggleSort('trend')}
               >
                 <div className="flex items-center justify-center gap-1">
@@ -388,7 +391,7 @@ export function BowlingChart() {
                 </div>
               </th>
               <th
-                className="px-3 py-3 text-center text-xs font-semibold text-slate-400 uppercase tracking-wider w-16 cursor-pointer hover:text-white transition-colors"
+                className={cn('px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider w-16 cursor-pointer transition-colors', isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white')}
                 onClick={() => toggleSort('unit')}
               >
                 <div className="flex items-center justify-center gap-1">
@@ -396,7 +399,7 @@ export function BowlingChart() {
                 </div>
               </th>
               <th
-                className="px-3 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider w-40 cursor-pointer hover:text-white transition-colors"
+                className={cn('px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider w-40 cursor-pointer transition-colors', isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white')}
                 onClick={() => toggleSort('owner')}
               >
                 <div className="flex items-center gap-1">
@@ -409,8 +412,8 @@ export function BowlingChart() {
                   className={cn(
                     'px-2 py-3 text-center text-xs font-semibold uppercase tracking-wider w-24',
                     idx === effectiveCurrentMonthIndex
-                      ? 'text-blue-400 bg-blue-500/5'
-                      : 'text-slate-400'
+                      ? (isLight ? 'text-blue-700 bg-blue-50 ring-1 ring-inset ring-blue-200' : 'text-blue-400 bg-blue-500/5')
+                      : (isLight ? 'text-slate-500' : 'text-slate-400')
                   )}
                 >
                   {month}
@@ -418,7 +421,7 @@ export function BowlingChart() {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/50">
+          <tbody className={cn('divide-y', isLight ? 'divide-slate-200' : 'divide-slate-800/50')}>
             {sortedKpis.map((kpi, index) => (
               <MemoizedKPIRow
                 key={kpi.id}
@@ -431,11 +434,12 @@ export function BowlingChart() {
                 onUpdateMonthly={updateMonthlyKpiData}
                 selectedYear={selectedYear}
                 index={index}
+                isLight={isLight}
               />
             ))}
             {sortedKpis.length === 0 && (
               <tr>
-                <td colSpan={5 + months.length} className="px-6 py-12 text-center text-slate-500">
+                <td colSpan={5 + months.length} className={cn('px-6 py-12 text-center', isLight ? 'text-slate-500' : 'text-slate-500')}>
                   No KPIs match your filters.
                 </td>
               </tr>
@@ -460,6 +464,7 @@ interface KPIRowProps {
   onUpdateMonthly: (kpiId: string, year: number, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
   selectedYear: number;
   index: number;
+  isLight: boolean;
 }
 
 const MemoizedKPIRow = React.memo(function KPIRow({
@@ -472,6 +477,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
   onUpdateMonthly,
   selectedYear,
   index,
+  isLight,
 }: KPIRowProps) {
   const TrendIcon = kpi.trend === 'up' ? TrendingUp : kpi.trend === 'down' ? TrendingDown : Minus;
   const lowerBetter = isLowerBetter(kpi.unit, kpi.code);
@@ -485,17 +491,17 @@ const MemoizedKPIRow = React.memo(function KPIRow({
         onMouseEnter={() => onHover(true)}
         onMouseLeave={() => onHover(false)}
         onClick={onClick}
-        className="group hover:bg-slate-800/30 cursor-pointer transition-colors"
+        className={cn('group cursor-pointer transition-colors', isLight ? 'hover:bg-slate-100/80' : 'hover:bg-slate-800/30')}
       >
         {/* KPI Name */}
-        <td className="sticky left-0 z-10 bg-slate-950 group-hover:bg-slate-900/95 px-4 py-3 transition-colors">
+        <td className={cn('sticky left-0 z-10 px-4 py-3 transition-colors', isLight ? 'bg-white group-hover:bg-slate-100' : 'bg-slate-950 group-hover:bg-slate-900/95')}>
           <div className="flex items-center gap-3">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onToggle();
               }}
-              className="flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
+              className={cn('flex items-center justify-center w-5 h-5 rounded transition-colors', isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-slate-500 hover:text-white hover:bg-slate-700')}
             >
               {isExpanded ? (
                 <ChevronDown className="w-4 h-4" />
@@ -504,8 +510,8 @@ const MemoizedKPIRow = React.memo(function KPIRow({
               )}
             </button>
             <div className="flex flex-col">
-              <span className="text-xs font-medium text-slate-500">{kpi.code}</span>
-              <span className="text-sm font-medium text-white">{kpi.title}</span>
+              <span className={cn('text-xs font-medium', isLight ? 'text-slate-500' : 'text-slate-500')}>{kpi.code}</span>
+              <span className={cn('text-sm font-medium', isLight ? 'text-slate-900' : 'text-white')}>{kpi.title}</span>
             </div>
           </div>
         </td>
@@ -535,7 +541,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
         </td>
 
         {/* Unit */}
-        <td className="px-3 py-3 text-center text-sm text-slate-400">{kpi.unit}</td>
+        <td className={cn('px-3 py-3 text-center text-sm', isLight ? 'text-slate-600' : 'text-slate-400')}>{kpi.unit}</td>
 
         {/* Owner */}
         <td className="px-3 py-3">
@@ -550,7 +556,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
               </div>
             ))}
             {owners.length > 2 && (
-              <span className="text-xs text-slate-500">+{owners.length - 2}</span>
+              <span className={cn('text-xs', isLight ? 'text-slate-500' : 'text-slate-500')}>+{owners.length - 2}</span>
             )}
           </div>
         </td>
@@ -566,6 +572,7 @@ const MemoizedKPIRow = React.memo(function KPIRow({
               selectedYear={selectedYear}
               monthIndex={monthIndex}
               onSave={onUpdateMonthly}
+              isLight={isLight}
             />
           </td>
         ))}
@@ -579,8 +586,8 @@ const MemoizedKPIRow = React.memo(function KPIRow({
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
           >
-            <td colSpan={5 + months.length} className="bg-slate-900/30 px-8 py-4 border-b border-slate-800">
-              <ExpandedKPIDetail kpi={kpi} />
+            <td colSpan={5 + months.length} className={cn('px-8 py-4 border-b', isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/30 border-slate-800')}>
+              <ExpandedKPIDetail kpi={kpi} isLight={isLight} />
             </td>
           </motion.tr>
         )}
@@ -601,9 +608,10 @@ interface EditableMonthlyCellProps {
   selectedYear: number;
   monthIndex: number;
   onSave: (kpiId: string, year: number, month: string, patch: { target?: number; actual?: number | null }) => Promise<void>;
+  isLight: boolean;
 }
 
-function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear, monthIndex, onSave }: EditableMonthlyCellProps) {
+function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear, monthIndex, onSave, isLight }: EditableMonthlyCellProps) {
   const [isEditingActual, setIsEditingActual] = useState(false);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -691,10 +699,10 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
   }, [handleSave]);
 
   const getVarianceColor = (pct: number | null) => {
-    if (pct === null) return 'bg-slate-800 border-slate-800';
-    if (pct >= 0) return 'bg-emerald-500/20 border-emerald-500/30';
-    if (pct >= -5) return 'bg-yellow-500/20 border-yellow-500/30';
-    return 'bg-red-500/20 border-red-500/30';
+    if (pct === null) return isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-800';
+    if (pct >= 0) return isLight ? 'bg-emerald-50 border-emerald-300' : 'bg-emerald-500/20 border-emerald-500/30';
+    if (pct >= -5) return isLight ? 'bg-amber-50 border-amber-300' : 'bg-yellow-500/20 border-yellow-500/30';
+    return isLight ? 'bg-rose-50 border-rose-300' : 'bg-red-500/20 border-red-500/30';
   };
 
   const rawPct = computeVariancePercent(monthData.actual, monthData.target);
@@ -703,8 +711,8 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
   // Editing state
   if (isEditingActual || isEditingTarget) {
     return (
-      <div className="relative flex flex-col items-center p-1 rounded-md border-2 border-blue-500 bg-slate-800 min-h-[48px]">
-        <div className="text-[10px] text-slate-500 leading-none">
+      <div className={cn('relative flex flex-col items-center p-1 rounded-md border-2 border-blue-500 min-h-[48px]', isLight ? 'bg-white' : 'bg-slate-800')}>
+        <div className={cn('text-[10px] leading-none', isLight ? 'text-slate-500' : 'text-slate-500')}>
           {isEditingTarget ? 'Target' : `T: ${formatValue(monthData.target, unit)}`}
         </div>
         <input
@@ -715,11 +723,11 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
           onChange={(e) => setEditValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onBlur={handleSave}
-          className="w-full mt-0.5 px-1 py-0 text-xs font-semibold text-white text-center bg-transparent border-none outline-none"
+          className={cn('w-full mt-0.5 px-1 py-0 text-xs font-semibold text-center bg-transparent border-none outline-none', isLight ? 'text-slate-900' : 'text-white')}
           style={{ maxWidth: '60px' }}
         />
         {isSaving && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-md">
+          <div className={cn('absolute inset-0 flex items-center justify-center rounded-md', isLight ? 'bg-white/70' : 'bg-slate-900/60')}>
             <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
           </div>
         )}
@@ -732,9 +740,9 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
     <div
       className={cn(
         'relative flex flex-col items-center p-1.5 rounded-md border transition-all min-h-[48px]',
-        isPast ? getVarianceColor(effectivePct) : 'bg-slate-800/30 border-slate-800',
-        isCurrent && 'ring-1 ring-blue-500/50',
-        (isPast || isFuture) && 'cursor-pointer hover:ring-1 hover:ring-slate-500/50'
+        isPast ? getVarianceColor(effectivePct) : (isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-800/30 border-slate-800'),
+        isCurrent && (isLight ? 'ring-2 ring-blue-300' : 'ring-1 ring-blue-500/50'),
+        (isPast || isFuture) && (isLight ? 'cursor-pointer hover:ring-1 hover:ring-slate-300' : 'cursor-pointer hover:ring-1 hover:ring-slate-500/50')
       )}
       suppressHydrationWarning
       title="Double-click actual to edit | Ctrl+click target to edit"
@@ -742,7 +750,7 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
     >
       {/* Target - Ctrl+Click to edit */}
       <div 
-        className="text-[10px] text-slate-500 leading-none cursor-pointer hover:text-slate-400" 
+        className={cn('text-[10px] leading-none cursor-pointer transition-colors', isLight ? 'text-slate-500 hover:text-slate-700' : 'text-slate-500 hover:text-slate-400')} 
         suppressHydrationWarning
         onClick={(e) => {
           if (e.ctrlKey || e.metaKey) {
@@ -757,7 +765,7 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
       {/* Actual - Double-click to edit */}
       {monthData.actual !== null ? (
         <div 
-          className="text-xs font-semibold text-white leading-tight mt-0.5 cursor-pointer hover:text-blue-300" 
+          className={cn('text-xs font-semibold leading-tight mt-0.5 cursor-pointer transition-colors', isLight ? 'text-slate-900 hover:text-blue-700' : 'text-white hover:text-blue-300')} 
           suppressHydrationWarning
           onDoubleClick={handleStartEditActual}
         >
@@ -765,7 +773,7 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
         </div>
       ) : (
         <div 
-          className="text-xs text-slate-600 leading-tight mt-0.5 cursor-pointer hover:text-slate-500" 
+          className={cn('text-xs leading-tight mt-0.5 cursor-pointer transition-colors', isLight ? 'text-slate-400 hover:text-slate-600' : 'text-slate-600 hover:text-slate-500')} 
           onDoubleClick={handleStartEditActual}
           title="Double-click to add actual value"
         >
@@ -777,12 +785,12 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
            server renders with mockData values, client may have real DB values:
            both className (colour) and style (width) are data-dependent. */}
       {monthData.variance !== null && (
-        <div className="w-full h-1 mt-1 rounded-full bg-slate-700 overflow-hidden" suppressHydrationWarning>
+        <div className={cn('w-full h-1 mt-1 rounded-full overflow-hidden', isLight ? 'bg-slate-200' : 'bg-slate-700')} suppressHydrationWarning>
           <div
             suppressHydrationWarning
             className={cn(
               'h-full rounded-full transition-all',
-              effectivePct === null ? 'bg-slate-600' : effectivePct >= 0 ? 'bg-emerald-500' : effectivePct >= -5 ? 'bg-yellow-500' : 'bg-red-500'
+              effectivePct === null ? (isLight ? 'bg-slate-400' : 'bg-slate-600') : effectivePct >= 0 ? 'bg-emerald-500' : effectivePct >= -5 ? 'bg-amber-500' : 'bg-rose-500'
             )}
             style={{
               // Use variance-% for width so bars are comparable across KPIs of different scales.
@@ -807,7 +815,7 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
 // ============================================================================
 // EXPANDED ROW DETAIL — Shows detailed month-by-month breakdown
 // ============================================================================
-function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
+function ExpandedKPIDetail({ kpi, isLight }: { kpi: KPI; isLight: boolean }) {
   const lowerBetter = isLowerBetter(kpi.unit, kpi.code);
 
   return (
@@ -815,12 +823,12 @@ function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
       {/* Summary */}
       <div className="flex items-center gap-8">
         <div>
-          <span className="text-xs text-slate-500 uppercase tracking-wider">Current</span>
-          <p className="text-lg font-bold text-white" suppressHydrationWarning>{formatValue(kpi.currentValue, kpi.unit)} {kpi.unit}</p>
+          <span className={cn('text-xs uppercase tracking-wider', isLight ? 'text-slate-500' : 'text-slate-500')}>Current</span>
+          <p className={cn('text-lg font-bold', isLight ? 'text-slate-900' : 'text-white')} suppressHydrationWarning>{formatValue(kpi.currentValue, kpi.unit)} {kpi.unit}</p>
         </div>
         <div>
-          <span className="text-xs text-slate-500 uppercase tracking-wider">Target</span>
-          <p className="text-lg font-bold text-slate-300" suppressHydrationWarning>{formatValue(kpi.targetValue, kpi.unit)} {kpi.unit}</p>
+          <span className={cn('text-xs uppercase tracking-wider', isLight ? 'text-slate-500' : 'text-slate-500')}>Target</span>
+          <p className={cn('text-lg font-bold', isLight ? 'text-slate-700' : 'text-slate-300')} suppressHydrationWarning>{formatValue(kpi.targetValue, kpi.unit)} {kpi.unit}</p>
         </div>
         <div>
           <span className="text-xs text-slate-500 uppercase tracking-wider">Overall Variance</span>
@@ -837,14 +845,14 @@ function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-slate-700">
-              <th className="px-2 py-1 text-left text-slate-500 font-medium w-20">Metric</th>
+            <tr className={cn('border-b', isLight ? 'border-slate-200' : 'border-slate-700')}>
+              <th className={cn('px-2 py-1 text-left font-medium w-20', isLight ? 'text-slate-500' : 'text-slate-500')}>Metric</th>
               {months.map((m, idx) => (
                 <th
                   key={m}
                   className={cn(
                     'px-2 py-1 text-center font-medium w-16',
-                    idx === CURRENT_MONTH_INDEX ? 'text-blue-400' : 'text-slate-500'
+                    idx === CURRENT_MONTH_INDEX ? (isLight ? 'text-blue-700' : 'text-blue-400') : 'text-slate-500'
                   )}
                 >
                   {m}
@@ -854,26 +862,26 @@ function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
           </thead>
           <tbody>
             {/* Target row */}
-            <tr className="border-b border-slate-800/50">
-              <td className="px-2 py-1.5 text-slate-400 font-medium">Target</td>
+            <tr className={cn('border-b', isLight ? 'border-slate-200' : 'border-slate-800/50')}>
+              <td className={cn('px-2 py-1.5 font-medium', isLight ? 'text-slate-500' : 'text-slate-400')}>Target</td>
               {kpi.monthlyData.map((m) => (
-                <td key={m.month} className="px-2 py-1.5 text-center text-slate-300" suppressHydrationWarning>
+                <td key={m.month} className={cn('px-2 py-1.5 text-center', isLight ? 'text-slate-700' : 'text-slate-300')} suppressHydrationWarning>
                   {formatValue(m.target, kpi.unit)}
                 </td>
               ))}
             </tr>
             {/* Actual row */}
-            <tr className="border-b border-slate-800/50">
-              <td className="px-2 py-1.5 text-slate-400 font-medium">Actual</td>
+            <tr className={cn('border-b', isLight ? 'border-slate-200' : 'border-slate-800/50')}>
+              <td className={cn('px-2 py-1.5 font-medium', isLight ? 'text-slate-500' : 'text-slate-400')}>Actual</td>
               {kpi.monthlyData.map((m) => (
-                <td key={m.month} className="px-2 py-1.5 text-center font-semibold text-white" suppressHydrationWarning>
+                <td key={m.month} className={cn('px-2 py-1.5 text-center font-semibold', isLight ? 'text-slate-900' : 'text-white')} suppressHydrationWarning>
                   {formatValue(m.actual, kpi.unit)}
                 </td>
               ))}
             </tr>
             {/* Variance row */}
-            <tr className="border-b border-slate-800/50">
-              <td className="px-2 py-1.5 text-slate-400 font-medium">Δ Var</td>
+            <tr className={cn('border-b', isLight ? 'border-slate-200' : 'border-slate-800/50')}>
+              <td className={cn('px-2 py-1.5 font-medium', isLight ? 'text-slate-500' : 'text-slate-400')}>Δ Var</td>
               {kpi.monthlyData.map((m) => {
                 const pct = computeVariancePercent(m.actual, m.target);
                 const effectivePct = pct === null ? null : (lowerBetter ? -pct : pct);
@@ -883,20 +891,20 @@ function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
                     key={m.month}
                     className={cn(
                       'px-2 py-1.5 text-center font-medium',
-                      effectivePct === null ? 'text-slate-600' :
+                      effectivePct === null ? (isLight ? 'text-slate-500' : 'text-slate-600') :
                       effectivePct >= 0 ? 'text-emerald-400' :
-                      effectivePct >= -5 ? 'text-yellow-400' : 'text-red-400'
+                      effectivePct >= -5 ? (isLight ? 'text-amber-600' : 'text-yellow-400') : (isLight ? 'text-rose-600' : 'text-red-400')
                     )}
                     suppressHydrationWarning
                   >
-                    {formatVariance(m.variance, kpi.unit)}
+                    {m.variance !== null ? `${m.variance >= 0 ? '+' : ''}${m.variance.toFixed(2)}` : '—'}
                   </td>
                 );
               })}
             </tr>
             {/* Variance % row */}
             <tr>
-              <td className="px-2 py-1.5 text-slate-400 font-medium">Δ %</td>
+              <td className={cn('px-2 py-1.5 font-medium', isLight ? 'text-slate-500' : 'text-slate-400')}>Δ %</td>
               {kpi.monthlyData.map((m) => {
                 const pct = computeVariancePercent(m.actual, m.target);
                 const effectivePct = pct === null ? null : (lowerBetter ? -pct : pct);
@@ -905,13 +913,13 @@ function ExpandedKPIDetail({ kpi }: { kpi: KPI }) {
                     key={m.month}
                     className={cn(
                       'px-2 py-1.5 text-center font-medium',
-                      effectivePct === null ? 'text-slate-600' :
+                      effectivePct === null ? (isLight ? 'text-slate-500' : 'text-slate-600') :
                       effectivePct >= 0 ? 'text-emerald-400' :
-                      effectivePct >= -5 ? 'text-yellow-400' : 'text-red-400'
+                      effectivePct >= -5 ? (isLight ? 'text-amber-600' : 'text-yellow-400') : (isLight ? 'text-rose-600' : 'text-red-400')
                     )}
                     suppressHydrationWarning
                   >
-                    {pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'}
+                    {pct !== null ? `${pct >= 0 ? '+' : ''}${Math.abs(pct) < 1 ? pct.toFixed(2) : pct.toFixed(1)}%` : '—'}
                   </td>
                 );
               })}

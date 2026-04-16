@@ -47,6 +47,9 @@ export async function POST(request: NextRequest) {
             health: data.health || 'on-track',
             startDate: data.startDate || new Date().toISOString().split('T')[0],
             endDate: data.endDate || new Date().toISOString().split('T')[0],
+            jiraIssueType: data.jiraIssueType || undefined,
+            jiraIssueKey: data.jiraIssueKey || undefined,
+            jiraIssueUrl: data.jiraIssueUrl || undefined,
         });
 
         return NextResponse.json(initiative, { status: 201 });

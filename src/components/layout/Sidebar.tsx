@@ -1,17 +1,15 @@
 'use client';
 
 import { useXMatrixStore } from '@/lib/store';
+import { useTheme } from '@/components/providers/ThemeProvider';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid,
-  Target,
   Map,
   BarChart3,
-  Rocket,
-  Users,
   MessageSquare,
   Settings,
   ChevronLeft,
@@ -24,9 +22,6 @@ const navItems = [
   { id: 'manage', label: 'Manage Data', icon: Database, href: '/manage' },
   { id: 'bowling-chart', label: 'Bowling Chart', icon: BarChart3, href: '/bowling-chart' },
   { id: 'strategy-map', label: 'Strategy Map', icon: Map, href: '/strategy-map' },
-  { id: 'kpis', label: 'KPIs', icon: Target, href: '/kpis' },
-  { id: 'initiatives', label: 'Initiatives', icon: Rocket, href: '/initiatives' },
-  { id: 'teams', label: 'Owners / Teams', icon: Users, href: '/teams' },
   { id: 'reviews', label: 'Reviews / Catchball', icon: MessageSquare, href: '/reviews' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },
 ];
@@ -34,6 +29,7 @@ const navItems = [
 export function Sidebar() {
   const { viewState, toggleSidebar } = useXMatrixStore();
   const { sidebarCollapsed: collapsed } = viewState;
+  const { colors } = useTheme();
   const pathname = usePathname();
 
   return (
@@ -41,10 +37,10 @@ export function Sidebar() {
       initial={false}
       animate={{ width: collapsed ? 72 : 260 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
-      className="relative flex flex-col h-screen bg-slate-900 border-r border-slate-800 z-40"
+      className={cn('relative flex flex-col h-screen border-r z-40', colors.sidebar)}
     >
       {/* Logo Section */}
-      <div className="flex items-center h-16 px-4 border-b border-slate-800">
+      <div className={cn('flex items-center h-16 px-4 border-b', colors.border.light)}>
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600">
             <LayoutGrid className="w-5 h-5 text-white" />

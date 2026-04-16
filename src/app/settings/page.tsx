@@ -2,8 +2,9 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useXMatrixStore } from '@/lib/store';
-import { Settings, Moon, Sun, Palette, Bell, Shield, Database } from 'lucide-react';
+import { Settings, Moon, Sun, Palette, Bell, Shield, Database, Link as LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { JiraSettingsPanel } from '@/components/settings/JiraSettingsPanel';
 
 export default function SettingsPage() {
   const { viewState, toggleDarkMode } = useXMatrixStore();
@@ -131,6 +132,20 @@ export default function SettingsPage() {
                 <div className="text-xs text-slate-500">View access history</div>
               </button>
             </div>
+          </section>
+
+          {/* Jira Integration */}
+          <section>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-slate-800">
+                <LinkIcon className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-white">Integrations</h3>
+                <p className="text-xs text-slate-500">Connect external tools and services</p>
+              </div>
+            </div>
+            <JiraSettingsPanel />
           </section>
         </div>
       </div>

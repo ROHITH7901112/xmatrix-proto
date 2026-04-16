@@ -1,4 +1,5 @@
 // filepath: src/app/api/kpis/[id]/monthly/route.ts
+//when is this api 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, getKPIById } from '@/lib/db';
 import { MonthlyKPIData } from '@/lib/types';
@@ -106,12 +107,12 @@ export async function PUT(
           // Update existing row
           const setClauses: string[] = [];
           const values: (string | number | null)[] = [];
-
+          // what is the use of the lines that follows ? it 
           if (item.target !== undefined) {
             setClauses.push('target = ?');
             values.push(item.target);
           }
-          if (item.actual !== undefined) {
+          if (item.actual !== undefined) { 
             setClauses.push('actual = ?');
             values.push(item.actual);
           }

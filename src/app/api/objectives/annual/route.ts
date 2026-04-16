@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
             year: data.year || new Date().getFullYear(),
             health: data.health || 'on-track',
             progress: data.progress || 0,
+            jiraEpicKey: data.jiraEpicKey || undefined,
+            jiraEpicUrl: data.jiraEpicUrl || undefined,
         });
 
         return NextResponse.json(objective, { status: 201 });

@@ -1,5 +1,6 @@
 'use client';
 
+
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { XMatrix } from '@/components/x-matrix/XMatrix';
 import { DetailPanel } from '@/components/shared/DetailPanel';

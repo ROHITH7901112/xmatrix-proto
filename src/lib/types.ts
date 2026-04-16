@@ -1,5 +1,6 @@
 // Enterprise Hoshin Kanri X-Matrix Types
 
+
 // MVP: Simplified to only Primary (direct/strong) and Secondary (supporting)
 export type RelationshipStrength = 'none' | 'primary' | 'secondary';
 
@@ -39,6 +40,11 @@ export interface LongTermObjective {
   description: string;
   timeframe: string;
   health: HealthStatus;
+  jiraEpicKey?: string;
+  jiraEpicUrl?: string;
+  jiraLastSynced?: number;
+  jiraSyncStatus?: 'synced' | 'pending' | 'error';
+  jiraSyncError?: string;
 }
 
 export interface AnnualObjective {
@@ -49,6 +55,11 @@ export interface AnnualObjective {
   year: number;
   health: HealthStatus;
   progress: number;
+  jiraEpicKey?: string;
+  jiraEpicUrl?: string;
+  jiraLastSynced?: number;
+  jiraSyncStatus?: 'synced' | 'pending' | 'error';
+  jiraSyncError?: string;
 }
 
 export interface Initiative {
@@ -60,6 +71,12 @@ export interface Initiative {
   health: HealthStatus;
   startDate: string;
   endDate: string;
+  jiraIssueType?: 'story' | 'task';
+  jiraIssueKey?: string;
+  jiraIssueUrl?: string;
+  jiraLastSynced?: number;
+  jiraSyncStatus?: 'synced' | 'pending' | 'error';
+  jiraSyncError?: string;
 }
 
 export type TargetDistribution = 'equal' | 'linear' | 'front-loaded';

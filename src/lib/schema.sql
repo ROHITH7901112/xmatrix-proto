@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS long_term_objectives (
   description TEXT,
   timeframe TEXT,
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
+  jira_epic_key TEXT,
+  jira_epic_url TEXT,
+  jira_last_synced INTEGER,
+  jira_sync_status TEXT CHECK(jira_sync_status IN ('synced', 'pending', 'error')),
+  jira_sync_error TEXT,
   FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE
 );
 
@@ -45,6 +50,11 @@ CREATE TABLE IF NOT EXISTS annual_objectives (
   year INTEGER,
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
   progress REAL DEFAULT 0,
+  jira_epic_key TEXT,
+  jira_epic_url TEXT,
+  jira_last_synced INTEGER,
+  jira_sync_status TEXT CHECK(jira_sync_status IN ('synced', 'pending', 'error')),
+  jira_sync_error TEXT,
   FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE
 );
 
@@ -59,6 +69,12 @@ CREATE TABLE IF NOT EXISTS initiatives (
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
   start_date TEXT,
   end_date TEXT,
+  jira_issue_type TEXT CHECK(jira_issue_type IN ('story', 'task')),
+  jira_issue_key TEXT,
+  jira_issue_url TEXT,
+  jira_last_synced INTEGER,
+  jira_sync_status TEXT CHECK(jira_sync_status IN ('synced', 'pending', 'error')),
+  jira_sync_error TEXT,
   FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE
 );
 
