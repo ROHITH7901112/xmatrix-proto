@@ -11,7 +11,7 @@ export default function XMatrixPage() {
     <DashboardLayout showRotation showZoom>
       <div className="flex flex-col h-full bg-slate-950">
         {/* Main Matrix Area - Scrollable */}
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-auto relative">
           <XMatrix />
         </div>
 

@@ -13,6 +13,7 @@ export default function ReviewsPage() {
         <h2 className="text-2xl font-semibold text-white mb-2">Reviews & Catchball</h2>
         <p className="text-slate-400 max-w-md mb-8">
           Conduct strategy reviews and facilitate the catchball process to align objectives across organizational levels.
+          
         </p>
         <div className="flex items-center gap-4">
           <div className="px-4 py-3 bg-slate-900 border border-slate-800 rounded-lg text-center">

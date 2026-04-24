@@ -36,7 +36,7 @@ This document covers the **real-time Jira webhook integration** that automatical
 | Field | Example | Description |
 |-------|---------|-------------|
 | **Jira Instance URL** | `https://shibik2004.atlassian.net` | Your Jira Cloud domain |
-| **Jira Project Key** | `XMAT` | The project key from your Jira issue keys (e.g., XMAT-123) |
+| **Jira Project Key** | `XMT` | The project key from your Jira issue keys (e.g., XMT-123) |
 | **Target X-Matrix ID** | `xmatrix-1` | The X-Matrix ID where stories will sync |
 | **Webhook Secret** | `my-secret-key-123` | Random string for validating webhooks (you create this) |
 
@@ -60,7 +60,7 @@ This document covers the **real-time Jira webhook integration** that automatical
 
 5. **Optional - Set JQL Filter** (recommended):
    ```
-   project = XMAT AND issuetype = Story
+   project = XMT AND issuetype = Story
    ```
    This ensures only Stories (not tasks or bugs) trigger the webhook
 
@@ -120,11 +120,11 @@ When a Story is synced from Jira to X-Matrix, the following fields are mapped:
 
 | Jira Priority | X-Matrix Priority |
 |--------------|------------------|
+| Blocker | blocker |
 | Highest | critical |
-| High | high |
+| Major | major |
 | Medium | medium |
-| Low | low |
-| Lowest | low |
+| Trivial / Lowest | trivial |
 
 ### Status Mapping
 
@@ -165,16 +165,16 @@ Response:
 Handles Jira webhook events
 
 ```bash
-POST /api/webhooks/jira?projectKey=XMAT&xmatrixId=xmatrix-1&secret=my-secret
+POST /api/webhooks/jira?projectKey=XMT&xmatrixId=xmatrix-1&secret=my-secret
 Content-Type: application/json
 
 {
   "issue": {
-    "key": "XMAT-123",
+   "key": "XMT-123",
     "summary": "New Feature",
     "description": "...",
     "issuetype": { "name": "Story" },
-    "priority": { "name": "High" },
+    "priority": { "name": "Critical" },
     "status": { "name": "To Do" },
     "self": "https://..."
   }
@@ -190,7 +190,7 @@ Response on Success:
     "id": "init-...",
     "code": "I-N-001",
     "title": "New Feature",
-    "jiraIssueKey": "XMAT-123",
+   "jiraIssueKey": "XMT-123",
     "jiraIssueUrl": "https://...",
     "jiraLastSynced": 1712500800
   }
@@ -228,7 +228,7 @@ The webhook secret is validated on every request:
 
 **Solutions**:
 1. Check if webhook is **Enabled** in Jira settings
-2. Verify **Project Key** matches your Jira project
+2. Verify **Project Key** is `XMT` and matches your Jira project
 3. Check **JQL filter** (if set) matches your Story
 4. Verify **Issue Type** is "Story" (not Task or Bug)
 

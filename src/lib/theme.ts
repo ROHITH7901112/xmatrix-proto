@@ -8,7 +8,7 @@ export const themes = {
   light: {
     // Backgrounds
     bg: {
-      primary: 'bg-slate-50',
+      primary: 'bg-blue-50',// want a dark blue for primary bg in light mode what to do ? you 
       secondary: 'bg-white',
       tertiary: 'bg-slate-100',
       overlay: 'bg-black/10',
@@ -27,7 +27,7 @@ export const themes = {
       dark: 'border-slate-400',
     },
     // Specific components
-    input: 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-blue-500',
+    input: 'bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500',
     card: 'bg-white border-slate-200',
     sidebar: 'bg-slate-100 border-slate-200',
     topbar: 'bg-white border-slate-200',
@@ -54,7 +54,7 @@ export const themes = {
       dark: 'border-slate-500',
     },
     // Specific components
-    input: 'bg-slate-800 border-slate-700 text-white placeholder-slate-500 focus:border-blue-500',
+    input: 'bg-slate-900/70 border border-slate-600 text-white placeholder-slate-500 focus:border-blue-500',
     card: 'bg-slate-800 border-slate-700',
     sidebar: 'bg-slate-800 border-slate-700',
     topbar: 'bg-slate-800 border-slate-700',
