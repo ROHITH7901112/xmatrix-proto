@@ -8,6 +8,22 @@ import { computeVariance, deriveHealth, deriveTrend, isLowerBetter, getCurrentVa
 // Deep clone helper for draft state
 const deepClone = <T>(obj: T): T => JSON.parse(JSON.stringify(obj));
 
+// Highlight debug mode (client-side only)
+// Enable with either:
+// 1) localStorage.setItem('xmatrix-highlight-debug', '1')
+// 2) window.__XMATRIX_HIGHLIGHT_DEBUG__ = true
+let lastHighlightDebugSignature = '';
+
+const isHighlightDebugEnabled = (): boolean => {
+  if (typeof window === 'undefined') return false;
+
+  const storageFlag = window.localStorage.getItem('xmatrix-highlight-debug');
+  if (storageFlag === '1' || storageFlag === 'true') return true;
+
+  type DebugWindow = Window & { __XMATRIX_HIGHLIGHT_DEBUG__?: boolean };
+  return Boolean((window as DebugWindow).__XMATRIX_HIGHLIGHT_DEBUG__);
+};
+
 interface XMatrixStore {
   // Data
   data: XMatrixData;
@@ -858,121 +874,106 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
   },
 
   getRelatedElements: (elementId: string, elementType: string) => {
-    const activeData = get().getActiveData(); 
-    const { relationships, longTermObjectives, annualObjectives, initiatives, kpis, owners } = activeData;
+    const activeData = get().getActiveData();
+    const { relationships } = activeData;
+
+    // Ignore dangling relationships that point to deleted/missing entities.
+    // These stale rows can otherwise cause "ghost" highlights.
+    const validEntityIds = new Set<string>([
+      ...activeData.longTermObjectives.map((e) => e.id),
+      ...activeData.annualObjectives.map((e) => e.id),
+      ...activeData.initiatives.map((e) => e.id),
+      ...activeData.kpis.map((e) => e.id),
+      ...activeData.owners.map((e) => e.id),
+    ]);
+
+    const validRelationships = relationships.filter(
+      (rel) => validEntityIds.has(rel.sourceId) && validEntityIds.has(rel.targetId)
+    );
+
     const related = new Set<string>();
     related.add(elementId);
 
-    // ── Build adjacency map from ALL edge sources ──────────────────────
-    const adjacency = new Map<string, Set<string>>();
+    type MatrixEntityType = 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
 
-    const addEdge = (a: string, b: string) => {
-      if (!adjacency.has(a)) adjacency.set(a, new Set());  //.has() is a method of map which return true if a key exist in that map . In this case it check if a key exist in adjacency map . If not it create a new set for that key .
-      if (!adjacency.has(b)) adjacency.set(b, new Set());
-      adjacency.get(a)!.add(b); // ! here tells TypeScript that we are sure adjacency.get(a) will not be undefined, so it's safe to call .add() on it. We can use this because we just initialized it in the lines above if it didn't exist.
-      adjacency.get(b)!.add(a); // .get() is a function of map . It return the value of a key . In this case it return a set() which we then give .add() to add another node to that set.
-    };
+    const getNeighborsByType = (fromIds: Set<string>, targetType: MatrixEntityType): Set<string> => {
+      const result = new Set<string>();
 
-    // 1. Index all explicit relationships (LTO↔AO, AO↔Init, Init↔KPI, etc.)
-    for (const rel of relationships) {
-      addEdge(rel.sourceId, rel.targetId);
-    }
-
-    // 2. Index KPI↔Owner links from ownerIds (these are NOT in relationships[])
-    
-    for (const kpi of kpis) {
-      for (const ownerId of kpi.ownerIds) {
-        addEdge(kpi.id, ownerId);
-      }
-    }
-
-    // ── Lookup helpers (built once, O(1) per call) ────────────────────
-    const entityTypeById = new Map<string, string>();
-    for (const e of longTermObjectives) entityTypeById.set(e.id, 'lto');
-    for (const e of annualObjectives) entityTypeById.set(e.id, 'ao');
-    for (const e of initiatives) entityTypeById.set(e.id, 'initiative');
-    for (const e of kpis) entityTypeById.set(e.id, 'kpi');
-    for (const e of owners) entityTypeById.set(e.id, 'owner');
-
-    const getRank = (type: string): number => {
-      switch (type) {
-        case 'lto': return 0;
-        case 'ao': return 1;
-        case 'initiative': return 2;
-        case 'kpi': return 3;
-        case 'owner': return 4;
-        default: return 99;
-      }
-    };
-
-    // ── BFS traversal in a given direction ────────────────────────────
-    const traverseDirection = (startId: string, startType: string, direction: 'up' | 'down') => {
-        
-      const queue: { id: string; type: string }[] = [{ id: startId, type: startType }];
-      const visited = new Set<string>();
-      visited.add(startId);
-
-      while (queue.length > 0) { 
-        const current = queue.shift()!; 
-        const currentRank = getRank(current.type);
-        const neighbors = adjacency.get(current.id);
-        if (!neighbors) continue;
-
-        for (const neighborId of neighbors) {
-          if (visited.has(neighborId)) continue;
-
-          const neighborType = entityTypeById.get(neighborId);
-          if (!neighborType) continue;
-
-          // When hovering/selecting a KPI, keep KPI/Owner highlights strict:
-          // - never traverse into another KPI
-          // - only include owners directly attached to the starting KPI
-          if (elementType === 'kpi') {
-            if (neighborType === 'kpi' && neighborId !== startId) continue;
-            if (neighborType === 'owner' && !(current.id === startId && current.type === 'kpi')) continue;
-          }
-
-          // When hovering/selecting an Owner, avoid owner-to-owner and owner-hopping chains:
-          // startOwner -> KPI is allowed, but KPI -> otherOwner is blocked.
-          // This prevents unrelated owners/KPIs from lighting up through shared assignments.
-          if (elementType === 'owner') {
-            if (neighborType === 'owner') continue;
-            if (current.type === 'kpi' && neighborType === 'owner') continue;
-          }
-
-          const neighborRank = getRank(neighborType);
-
-          // KPI ↔ Owner traversal rules:
-          // - Allow KPI -> Owner so KPI hover can show its assigned owners.
-          // - Allow Owner -> KPI only when Owner is the START node (direct ownership view).
-          //   This prevents bouncing Owner -> other KPI -> ... which over-highlights unrelated KPIs.
-          const isKpiToOwner = current.type === 'kpi' && neighborType === 'owner';
-          const isOwnerToKpiFromStartOwner =
-            current.type === 'owner' && neighborType === 'kpi' && current.id === startId;
-
-          let isValidStep = false;
-
-          if (isKpiToOwner || isOwnerToKpiFromStartOwner) {
-            // Controlled KPI/Owner traversal to avoid owner-based over-propagation
-            isValidStep = true;
-          } else if (direction === 'up' && neighborRank < currentRank) {
-            isValidStep = true;
-          } else if (direction === 'down' && neighborRank > currentRank) {
-            isValidStep = true;
-          }
-
-          if (isValidStep) {
-            visited.add(neighborId);
-            related.add(neighborId);
-            queue.push({ id: neighborId, type: neighborType });
-          }
+      for (const rel of validRelationships) {
+        if (fromIds.has(rel.sourceId) && rel.targetType === targetType) {
+          result.add(rel.targetId);
+        }
+        if (fromIds.has(rel.targetId) && rel.sourceType === targetType) {
+          result.add(rel.sourceId);
         }
       }
+
+      return result;
     };
 
-    // Traverse both directions from the hovered element
-    traverseDirection(elementId, elementType, 'up');
-    traverseDirection(elementId, elementType, 'down');
+    const addAll = (...groups: Set<string>[]) => {
+      for (const group of groups) {
+        for (const id of group) related.add(id);
+      }
+    };
+
+    const activeType = elementType as MatrixEntityType;
+
+    if (activeType === 'lto') {
+      const ltos = new Set<string>([elementId]);
+      const aos = getNeighborsByType(ltos, 'ao');
+      const initiatives = getNeighborsByType(aos, 'initiative');
+      const kpis = getNeighborsByType(initiatives, 'kpi');
+      const owners = getNeighborsByType(initiatives, 'owner');
+      addAll(aos, initiatives, kpis, owners);
+      return related;
+    }
+
+    if (activeType === 'ao') {
+      const aos = new Set<string>([elementId]);
+      const ltos = getNeighborsByType(aos, 'lto');
+      const initiatives = getNeighborsByType(aos, 'initiative');
+      const kpis = getNeighborsByType(initiatives, 'kpi');
+      const owners = getNeighborsByType(initiatives, 'owner');
+      addAll(ltos, initiatives, kpis, owners);
+      return related;
+    }
+
+    if (activeType === 'initiative') {
+      const initiatives = new Set<string>([elementId]);
+      const aos = getNeighborsByType(initiatives, 'ao');
+      const ltos = getNeighborsByType(aos, 'lto');
+      const kpis = getNeighborsByType(initiatives, 'kpi');
+      const owners = getNeighborsByType(initiatives, 'owner');
+      addAll(aos, ltos, kpis, owners);
+      return related;
+    }
+
+    if (activeType === 'kpi') {
+      const kpis = new Set<string>([elementId]);
+      const initiatives = getNeighborsByType(kpis, 'initiative');
+      const aos = getNeighborsByType(initiatives, 'ao');
+      const ltos = getNeighborsByType(aos, 'lto');
+      const owners = getNeighborsByType(initiatives, 'owner');
+      addAll(initiatives, aos, ltos, owners);
+      return related;
+    }
+
+    if (activeType === 'owner') {
+      const owners = new Set<string>([elementId]);
+      const initiatives = getNeighborsByType(owners, 'initiative');
+      const aos = getNeighborsByType(initiatives, 'ao');
+      const ltos = getNeighborsByType(aos, 'lto');
+      const kpis = getNeighborsByType(initiatives, 'kpi');
+      addAll(initiatives, aos, ltos, kpis);
+      return related;
+    }
+
+    // Fallback: direct explicit relationships only.
+    for (const rel of validRelationships) {
+      if (rel.sourceId === elementId) related.add(rel.targetId);
+      if (rel.targetId === elementId) related.add(rel.sourceId);
+    }
 
     return related;
   },
@@ -983,7 +984,36 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
 
     if (!activeElement) return new Set<string>(); 
 
-    return get().getRelatedElements(activeElement.id, activeElement.type); 
+    const highlighted = get().getRelatedElements(activeElement.id, activeElement.type);
+
+    if (isHighlightDebugEnabled()) {
+      const sortedIds = [...highlighted].sort();
+      const signature = `${activeElement.type}:${activeElement.id}|${sortedIds.join(',')}`;
+
+      if (signature !== lastHighlightDebugSignature) {
+        lastHighlightDebugSignature = signature;
+
+        const activeData = get().getActiveData();
+
+        const buckets = {
+          lto: sortedIds.filter((id) => activeData.longTermObjectives.some((e) => e.id === id)),
+          ao: sortedIds.filter((id) => activeData.annualObjectives.some((e) => e.id === id)),
+          initiative: sortedIds.filter((id) => activeData.initiatives.some((e) => e.id === id)),
+          kpi: sortedIds.filter((id) => activeData.kpis.some((e) => e.id === id)),
+          owner: sortedIds.filter((id) => activeData.owners.some((e) => e.id === id)),
+        };
+
+        console.groupCollapsed(
+          `[XMatrix Highlight Debug] ${activeElement.type}:${activeElement.id} → ${sortedIds.length} highlighted`
+        );
+        console.log('Active Element:', activeElement);
+        console.log('All Highlighted IDs:', sortedIds);
+        console.log('By Section:', buckets);
+        console.groupEnd();
+      }
+    }
+
+    return highlighted;
   },
 
   getActiveRelationships: () => {
