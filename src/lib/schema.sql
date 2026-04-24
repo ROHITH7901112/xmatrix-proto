@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS initiatives (
   code TEXT,
   title TEXT NOT NULL,
   description TEXT,
-  priority TEXT CHECK(priority IN ('critical', 'high', 'medium', 'low')),
+  priority TEXT CHECK(priority IN ('blocker', 'critical', 'major', 'medium', 'trivial')),
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
   start_date TEXT,
   end_date TEXT,

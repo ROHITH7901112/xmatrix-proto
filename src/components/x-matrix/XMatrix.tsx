@@ -46,7 +46,7 @@ export function XMatrix() {
     handleCreateOwner, handleUpdateOwner, handleDeleteOwner,
   } = useXMatrixCRUD();
 
-  const { rotation } = viewState;
+  const { rotation, zoom } = viewState;
   const highlightedElements = getHighlightedElements();
   const hasHighlight = highlightedElements.size > 0;
 
@@ -96,14 +96,13 @@ export function XMatrix() {
   }
 
   return (
-    <div className="w-full h-full flex items-center justify-center p-2 overflow-auto">
+    <div className="w-full h-full overflow-auto p-2">
+      <div className="min-w-max min-h-max flex items-center justify-center">
       <motion.svg
+        width={dim.totalW * zoom}
+        height={dim.totalH * zoom}
         viewBox={`0 0 ${dim.totalW} ${dim.totalH}`}
-        className="max-w-full max-h-full"
-        style={{ width: '100%', height: '100%', maxWidth: `${dim.totalW}px`, maxHeight: `${dim.totalH}px` }}
-        initial={{ rotate: 0 }}
-        animate={{ rotate: rotation }}
-        transition={{ duration: 0.5, ease: 'easeInOut' }}
+        className="block"
         preserveAspectRatio="xMidYMid meet"
       >
         {/* Background */}
@@ -296,6 +295,7 @@ export function XMatrix() {
           <AddButtons dim={dim} rotation={rotation} openAddModal={openAddModal} />
         )}
       </motion.svg>
+      </div>
 
       {/* ── Edit Modals ─────────────────────────────────────────────── */}
       <Modal isOpen={modalType === 'lto'} onClose={closeModal} title={editingItem ? 'Edit Long-Term Objective' : 'New Long-Term Objective'}>
@@ -667,13 +667,15 @@ function EmptyStatePlaceholders({ dim, data, rotation }: { dim: MatrixDimensions
 function AddButtons({ dim, rotation, openAddModal }: { dim: MatrixDimensions; rotation: number; openAddModal: (type: EntityType) => void }) {
   const { centerX, centerY, topLeftX, topLeftY, topRightX, bottomLeftY, ownerGridX, rightW, bottomH, ownerW } = dim;
   const sz = 20;
+  const buttonOffset = 14;
+  const labelOffset = 10;
 
   const buttons: { x: number; y: number; label: string; type: EntityType; vertical?: boolean }[] = [
     { x: centerX, y: topLeftY - 25, label: '+ Initiative', type: 'initiative' },
-    { x: topLeftX - 25, y: centerY, label: '+ AO', type: 'ao', vertical: true },
+    { x: topLeftX - buttonOffset, y: centerY, label: '+ AO', type: 'ao', vertical: true },
     { x: topRightX + rightW + OWNER_GAP / 2, y: centerY, label: '+ KPI', type: 'kpi', vertical: true },
-    { x: ownerGridX + ownerW + 25, y: centerY, label: '+ Owner', type: 'owner', vertical: true },
-    { x: centerX, y: bottomLeftY + bottomH + 25, label: '+ LTO', type: 'lto' },
+    { x: ownerGridX + ownerW + buttonOffset, y: centerY, label: '+ Owner', type: 'owner', vertical: true },
+    { x: centerX, y: bottomLeftY + bottomH + buttonOffset, label: '+ LTO', type: 'lto' },
   ];
 
   return (
@@ -692,11 +694,11 @@ function AddButtons({ dim, rotation, openAddModal }: { dim: MatrixDimensions; ro
             <line x1={btn.x - 5} y1={btn.y} x2={btn.x + 5} y2={btn.y} stroke="rgb(147,197,253)" strokeWidth={1.5} strokeLinecap="round" />
             <line x1={btn.x} y1={btn.y - 5} x2={btn.x} y2={btn.y + 5} stroke="rgb(147,197,253)" strokeWidth={1.5} strokeLinecap="round" />
             {btn.vertical ? (
-              <g transform={`rotate(-90, ${btn.x}, ${btn.y + sz / 2 + 15})`}>
-                <text x={btn.x} y={btn.y + sz / 2 + 15} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
+              <g transform={`rotate(-90, ${btn.x}, ${btn.y + sz / 2 + labelOffset})`}>
+                <text x={btn.x} y={btn.y + sz / 2 + labelOffset} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
               </g>
             ) : (
-              <text x={btn.x} y={btn.y + sz / 2 + 12} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
+              <text x={btn.x} y={btn.y + sz / 2 + labelOffset} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
             )}
           </g>
         </motion.g>

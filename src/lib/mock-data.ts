@@ -62,11 +62,11 @@ export const annualObjectives: AnnualObjective[] = [
 
 export const initiatives: Initiative[] = [
   { id: 'init-1', code: 'I-1', title: 'Enterprise Sales Acceleration Program', description: 'Restructure sales team and implement account-based marketing', priority: 'critical', health: 'on-track', startDate: '2026-01-01', endDate: '2026-06-30' },
-  { id: 'init-2', code: 'I-2', title: 'Process Optimization Initiative', description: 'Identify and eliminate waste across value streams', priority: 'high', health: 'at-risk', startDate: '2026-02-01', endDate: '2026-12-31' },
+  { id: 'init-2', code: 'I-2', title: 'Process Optimization Initiative', description: 'Identify and eliminate waste across value streams', priority: 'major', health: 'at-risk', startDate: '2026-02-01', endDate: '2026-12-31' },
   { id: 'init-3', code: 'I-3', title: 'AI/ML Platform Development', description: 'Build and deploy machine learning capabilities', priority: 'critical', health: 'on-track', startDate: '2026-01-15', endDate: '2026-09-30' },
-  { id: 'init-4', code: 'I-4', title: 'Customer Success Transformation', description: 'Implement proactive customer success methodology', priority: 'high', health: 'on-track', startDate: '2026-03-01', endDate: '2026-08-31' },
+  { id: 'init-4', code: 'I-4', title: 'Customer Success Transformation', description: 'Implement proactive customer success methodology', priority: 'major', health: 'on-track', startDate: '2026-03-01', endDate: '2026-08-31' },
   { id: 'init-5', code: 'I-5', title: 'Strategic Partnership Program', description: 'Establish key technology and channel partnerships', priority: 'medium', health: 'on-track', startDate: '2026-01-01', endDate: '2026-12-31' },
-  { id: 'init-6', code: 'I-6', title: 'Digital Infrastructure Modernization', description: 'Migrate to cloud-native architecture', priority: 'high', health: 'on-track', startDate: '2026-04-01', endDate: '2026-11-30' },
+  { id: 'init-6', code: 'I-6', title: 'Digital Infrastructure Modernization', description: 'Migrate to cloud-native architecture', priority: 'major', health: 'on-track', startDate: '2026-04-01', endDate: '2026-11-30' },
 ];
 
 export const kpis: KPI[] = [

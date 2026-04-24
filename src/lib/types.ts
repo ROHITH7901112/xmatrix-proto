@@ -67,7 +67,7 @@ export interface Initiative {
   code: string;
   title: string;
   description: string;
-  priority: 'critical' | 'high' | 'medium' | 'low';
+  priority: 'blocker' | 'critical' | 'major' | 'medium' | 'trivial';
   health: HealthStatus;
   startDate: string;
   endDate: string;

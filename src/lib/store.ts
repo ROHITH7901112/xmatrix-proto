@@ -96,7 +96,7 @@ const initialViewState: ViewState = {
   rotation: 0,
   selectedElement: null,
   hoveredElement: null,
-  zoom: 1,
+  zoom: 0.75,
   isDarkMode: true,
   sidebarCollapsed: false,
   timeHorizon: 'current',
@@ -286,7 +286,12 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     set((state) => ({ viewState: { ...state.viewState, hoveredElement: element } })),
 
   setZoom: (zoom) =>
-    set((state) => ({ viewState: { ...state.viewState, zoom } })),
+    set((state) => ({
+      viewState: {
+        ...state.viewState,
+        zoom: Math.max(0.6, Math.min(1.8, Number(zoom.toFixed(2))))
+      }
+    })),
 
   toggleDarkMode: () =>
     set((state) => ({ viewState: { ...state.viewState, isDarkMode: !state.viewState.isDarkMode } })),

@@ -73,12 +73,13 @@ export function FormInput({ label, ...props }: { label: string } & React.InputHT
 
 // Form select component
 export function FormSelect({ label, options, ...props }: { label: string; options: { value: string; label: string }[] } & React.SelectHTMLAttributes<HTMLSelectElement>) {
+    const { colors } = useTheme();
     return (
         <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-slate-300">{label}</label>
+            <label className={cn("block text-sm font-medium", colors.text.secondary)}>{label}</label>
             <select
                 {...props}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className={cn("w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all", colors.input)}
             >
                 {options.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -90,12 +91,13 @@ export function FormSelect({ label, options, ...props }: { label: string; option
 
 // Form textarea component
 export function FormTextarea({ label, ...props }: { label: string } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+    const { colors } = useTheme();
     return (
         <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-slate-300">{label}</label>
+            <label className={cn("block text-sm font-medium", colors.text.secondary)}>{label}</label>
             <textarea
                 {...props}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
+                className={cn("w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none", colors.input)}
                 rows={3}
             />
         </div>
@@ -276,12 +278,13 @@ export function InitiativeForm({
                 <FormSelect
                     label="Priority"
                     value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as 'critical' | 'high' | 'medium' | 'low' })}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as 'blocker' | 'critical' | 'major' | 'medium' | 'trivial' })}
                     options={[
+                        { value: 'blocker', label: 'Blocker' },
                         { value: 'critical', label: 'Critical' },
-                        { value: 'high', label: 'High' },
+                        { value: 'major', label: 'Major' },
                         { value: 'medium', label: 'Medium' },
-                        { value: 'low', label: 'Low' },
+                        { value: 'trivial', label: 'Trivial' },
                     ]}
                 />
             </div>
