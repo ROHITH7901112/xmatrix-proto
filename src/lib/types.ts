@@ -9,6 +9,9 @@ export type EntityType = 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
 // Status Labels: on-track (green), at-risk (yellow), off-track (red)
 export type HealthStatus = 'on-track' | 'at-risk' | 'off-track';
 
+// Lifecycle status — Active = in progress, Done = KPI target reached
+export type EntityStatus = 'active' | 'done';
+
 export type Trend = 'up' | 'down' | 'stable';
 
 export type ResponsibilityType = 'accountable' | 'responsible' | 'consulted' | 'informed';
@@ -40,6 +43,7 @@ export interface LongTermObjective {
   description: string;
   timeframe: string;
   health: HealthStatus;
+  status?: EntityStatus;
   jiraEpicKey?: string;
   jiraEpicUrl?: string;
   jiraLastSynced?: number;
@@ -55,6 +59,7 @@ export interface AnnualObjective {
   year: number;
   health: HealthStatus;
   progress: number;
+  status?: EntityStatus;
   jiraEpicKey?: string;
   jiraEpicUrl?: string;
   jiraLastSynced?: number;
@@ -69,6 +74,7 @@ export interface Initiative {
   description: string;
   priority: 'blocker' | 'critical' | 'major' | 'medium' | 'trivial';
   health: HealthStatus;
+  status?: EntityStatus;
   startDate: string;
   endDate: string;
   jiraIssueType?: 'story' | 'task';
@@ -79,7 +85,7 @@ export interface Initiative {
   jiraSyncError?: string;
 }
 
-export type TargetDistribution = 'equal' | 'linear' | 'front-loaded';
+export type TargetDistribution = 'equal' | 'linear' | 'front-loaded' | 'custom';
 
 export const KPI_UNITS = [
   { value: '%', label: '% — Percentage' },
@@ -128,7 +134,7 @@ export interface Relationship {
   sourceType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
   targetId: string;
   targetType: 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
-  strength: RelationshipStrength;
+   strength: RelationshipStrength;
 }
 
 export interface XMatrixData {
@@ -172,6 +178,7 @@ export interface FilterState {
   health: HealthStatus[];
   objectives: string[];
   timeRange: { start: string; end: string } | null;
+  statusFilter: EntityStatus | 'all';
 }
 
 export type NavItem = {

@@ -1,0 +1,20 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Yellow Star Center -->
+  <path d="M100 30 L110 60 L140 60 L115 80 L125 110 L100 90 L75 110 L85 80 L60 60 L90 60 Z" fill="#FFD700"/>
+  
+  <!-- Red Heart Top -->
+  <path d="M100 50 C100 45 105 40 110 40 C115 40 120 45 120 50 C120 60 110 70 100 80 C90 70 80 60 80 50 C80 45 85 40 90 40 C95 40 100 45 100 50 Z" fill="#FF5722" opacity="0.8"/>
+  <path d="M100 50 L120 35 Q135 35 140 50 Q140 65 100 95 Q60 65 60 50 Q65 35 80 35 L100 50 Z" fill="#FF5722"/>
+  
+  <!-- Green Left -->
+  <circle cx="40" cy="100" r="12" fill="#66BB6A"/>
+  <path d="M50 90 Q70 85 75 100 Q70 115 50 110 Q45 105 50 100 Z" fill="#66BB6A"/>
+  
+  <!-- Blue Bottom -->
+  <circle cx="100" cy="160" r="12" fill="#1976D2"/>
+  <path d="M95 140 Q100 120 115 125 Q120 140 115 155 Q100 160 95 150 Z" fill="#1976D2"/>
+  
+  <!-- Orange/Yellow Right -->
+  <circle cx="160" cy="100" r="12" fill="#FFA500"/>
+  <path d="M150 90 Q130 85 125 100 Q130 115 150 110 Q155 105 150 100 Z" fill="#FFA500"/>
+</svg>

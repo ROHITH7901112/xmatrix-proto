@@ -70,10 +70,10 @@ interface SortState {
 //
 // VARIANCE BAR (Below each month cell):
 // —————————————————————————————————————
-// Green bar (■):  Exceeds target      | Variance % ≥ 0%
-// Yellow bar (■): At-risk threshold   | -5% ≤ Variance % < 0%
-// Red bar (■):    Off-track threshold | Variance % < -5%
-// Width:          50% + variance_percent, clamped 5-95% (always visible)
+// Green bar (■):  Meets/exceeds target | Variance % ≥ 0%
+// Yellow bar (■): At-risk threshold    | -5% ≤ Variance % < 0%
+// Red bar (■):    Off-track threshold  | Variance % < -5%
+// Width:          Target attainment % (100% once target is met, capped at full width)
 //
 // RETROACTIVE PROGRESS DISTRIBUTION (On KPI Creation):
 // ————————————————————————————————————————————————————
@@ -94,7 +94,7 @@ interface SortState {
 export function BowlingChart() {
   const { theme } = useTheme();
   const isLight = theme === 'light';
-  const { data, fetchData, setHoveredElement, setSelectedElement, updateMonthlyKpiData, loadBowlingChartYear } = useXMatrixStore();
+  const { data, fetchData, setHoveredElement, setSelectedElement, updateMonthlyKpiData, loadBowlingChartYear, getRelatedElements } = useXMatrixStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Always fetch fresh data when this page mounts — ensures newly created KPIs appear
@@ -149,18 +149,33 @@ export function BowlingChart() {
     });
   }, []);
 
+  const getOwnersByIds = useCallback((ids: string[]): Owner[] => {
+    return data.owners.filter((o) => ids.includes(o.id));
+  }, [data.owners]);
+
+  const getOwnersForKpi = useCallback((kpi: KPI): Owner[] => {
+    const relatedIds = getRelatedElements(kpi.id, 'kpi');
+    const relatedOwners = data.owners.filter((owner) => relatedIds.has(owner.id));
+
+    if (relatedOwners.length > 0) {
+      return relatedOwners;
+    }
+
+    return getOwnersByIds(kpi.ownerIds);
+  }, [data.owners, getOwnersByIds, getRelatedElements]);
+
   // Filtering
   const filteredKpis = useMemo(() => {
     return data.kpis.filter((kpi) => {
       if (filters.health && kpi.health !== filters.health) return false;
-      if (filters.owner && !kpi.ownerIds.includes(filters.owner)) return false;
+      if (filters.owner && !getOwnersForKpi(kpi).some((owner) => owner.id === filters.owner)) return false;
       if (filters.search) {
         const q = filters.search.toLowerCase();
         if (!kpi.title.toLowerCase().includes(q) && !kpi.code.toLowerCase().includes(q)) return false;
       }
       return true;
     });
-  }, [data.kpis, filters]);
+  }, [data.kpis, filters, getOwnersForKpi]);
 
   // Sorting
   const sortedKpis = useMemo(() => {
@@ -189,8 +204,8 @@ export function BowlingChart() {
           cmp = a.unit.localeCompare(b.unit);
           break;
         case 'owner': {
-          const aOwner = data.owners.find(o => a.ownerIds.includes(o.id))?.name || '';
-          const bOwner = data.owners.find(o => b.ownerIds.includes(o.id))?.name || '';
+          const aOwner = getOwnersForKpi(a)[0]?.name || '';
+          const bOwner = getOwnersForKpi(b)[0]?.name || '';
           cmp = aOwner.localeCompare(bOwner);
           break;
         }
@@ -208,11 +223,7 @@ export function BowlingChart() {
     });
 
     return sorted;
-  }, [filteredKpis, sort, data.owners, varianceSortMonthIndex]);
-
-  const getOwnersByIds = useCallback((ids: string[]): Owner[] => {
-    return data.owners.filter((o) => ids.includes(o.id));
-  }, [data.owners]);
+  }, [filteredKpis, sort, getOwnersForKpi, varianceSortMonthIndex]);
 
   const clearFilters = () => {
     setFilters({ health: null, owner: null, search: '' });
@@ -426,7 +437,7 @@ export function BowlingChart() {
               <MemoizedKPIRow
                 key={kpi.id}
                 kpi={kpi}
-                owners={getOwnersByIds(kpi.ownerIds)}
+                owners={getOwnersForKpi(kpi)}
                 isExpanded={expandedRows.has(kpi.id)}
                 onToggle={() => toggleRow(kpi.id)}
                 onHover={(hover) => setHoveredElement(hover ? { id: kpi.id, type: 'kpi' } : null)}
@@ -712,8 +723,11 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
   if (isEditingActual || isEditingTarget) {
     return (
       <div className={cn('relative flex flex-col items-center p-1 rounded-md border-2 border-blue-500 min-h-[48px]', isLight ? 'bg-white' : 'bg-slate-800')}>
-        <div className={cn('text-[10px] leading-none', isLight ? 'text-slate-500' : 'text-slate-500')}>
-          {isEditingTarget ? 'Target' : `T: ${formatValue(monthData.target, unit)}`}
+        <div className={cn('flex items-center gap-0.5 leading-none', isLight ? 'text-slate-600' : 'text-slate-300')}>
+          {isEditingTarget
+            ? <span className="text-[10px] font-medium">Target</span>
+            : <><span className={cn('text-[8px] font-bold uppercase tracking-wide', isLight ? 'text-slate-400' : 'text-slate-500')}>T</span><span className="text-[10px] font-medium">{formatValue(monthData.target, unit)}</span></>
+          }
         </div>
         <input
           ref={inputRef}
@@ -749,8 +763,8 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
       onClick={(e) => e.stopPropagation()} // Prevent detail panel from opening when clicking monthly cell
     >
       {/* Target - Ctrl+Click to edit */}
-      <div 
-        className={cn('text-[10px] leading-none cursor-pointer transition-colors', isLight ? 'text-slate-500 hover:text-slate-700' : 'text-slate-500 hover:text-slate-400')} 
+      <div
+        className={cn('flex items-center gap-0.5 leading-none cursor-pointer transition-colors', isLight ? 'text-slate-600 hover:text-slate-800' : 'text-slate-300 hover:text-white')}
         suppressHydrationWarning
         onClick={(e) => {
           if (e.ctrlKey || e.metaKey) {
@@ -759,7 +773,8 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
         }}
         title="Ctrl+click to edit target"
       >
-        T: {formatValue(monthData.target, unit)}
+        <span className={cn('text-[8px] font-bold uppercase tracking-wide', isLight ? 'text-slate-600' : 'text-slate-200')}>T</span>
+        <span className="text-[10px] font-medium">{formatValue(monthData.target, unit)}</span>
       </div>
 
       {/* Actual - Double-click to edit */}
@@ -793,15 +808,17 @@ function EditableMonthlyCell({ kpiId, monthData, unit, lowerBetter, selectedYear
               effectivePct === null ? (isLight ? 'bg-slate-400' : 'bg-slate-600') : effectivePct >= 0 ? 'bg-emerald-500' : effectivePct >= -5 ? 'bg-amber-500' : 'bg-rose-500'
             )}
             style={{
-              // Use variance-% for width so bars are comparable across KPIs of different scales.
-              // 50 % = neutral (0 variance), clamp 5–95 so bar is always slightly visible.
+              // Target attainment bar:
+              // - At/above target => 100%
+              // - Below target => (100 + variance%)%
+              // - Never negative / never above full width
               width: `${
                 Math.min(
                   Math.max(
-                    50 + (effectivePct ?? 0),
-                    5
+                    (effectivePct ?? 0) >= 0 ? 100 : 100 + (effectivePct ?? 0),
+                    0
                   ),
-                  95
+                  100
                 )
               }%`,
             }}

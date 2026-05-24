@@ -42,6 +42,87 @@ function initializeSchema(): void {
   runMigrations();
 }
 
+function rebuildKpiTargetDistributionConstraint(): void {
+  const tableInfo = db!.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'kpis'").get() as { sql?: string } | undefined;
+  const tableSql = tableInfo?.sql ?? '';
+
+  if (tableSql.includes("'custom'")) {
+    return;
+  }
+
+  const existingRows = db!.prepare(
+    'SELECT id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids, start_date, end_date, target_distribution FROM kpis'
+  ).all() as Array<{
+    id: string;
+    xmatrix_id: string;
+    code: string | null;
+    title: string;
+    unit: string | null;
+    current_value: number | null;
+    target_value: number | null;
+    health: string | null;
+    trend: string | null;
+    owner_ids: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    target_distribution: string | null;
+  }>;
+
+  db!.exec('PRAGMA foreign_keys = OFF');
+  db!.exec(`
+    CREATE TABLE IF NOT EXISTS kpis_new (
+      id TEXT PRIMARY KEY,
+      xmatrix_id TEXT NOT NULL,
+      code TEXT,
+      title TEXT NOT NULL,
+      unit TEXT,
+      current_value REAL,
+      target_value REAL,
+      health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
+      trend TEXT CHECK(trend IN ('up', 'down', 'stable')),
+      owner_ids TEXT,
+      start_date TEXT,
+      end_date TEXT,
+      target_distribution TEXT CHECK(target_distribution IN ('equal', 'linear', 'front-loaded', 'custom')) DEFAULT 'equal',
+      FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE
+    )
+  `);
+
+  const insertNew = db!.prepare(
+    'INSERT INTO kpis_new (id, xmatrix_id, code, title, unit, current_value, target_value, health, trend, owner_ids, start_date, end_date, target_distribution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+
+  for (const row of existingRows) {
+    const targetDistribution = row.target_distribution === 'custom'
+      ? 'custom'
+      : row.target_distribution === 'linear'
+        ? 'linear'
+        : row.target_distribution === 'front-loaded'
+          ? 'front-loaded'
+          : 'equal';
+
+    insertNew.run(
+      row.id,
+      row.xmatrix_id,
+      row.code,
+      row.title,
+      row.unit,
+      row.current_value,
+      row.target_value,
+      row.health,
+      row.trend,
+      row.owner_ids,
+      row.start_date,
+      row.end_date,
+      targetDistribution,
+    );
+  }
+
+  db!.exec('DROP TABLE kpis');
+  db!.exec('ALTER TABLE kpis_new RENAME TO kpis');
+  db!.exec('PRAGMA foreign_keys = ON');
+}
+
 /** Add new columns to existing databases without breaking existing data */
 function runMigrations(): void {
   const addColumn = (table: string, column: string, definition: string) => {
@@ -54,6 +135,9 @@ function runMigrations(): void {
   addColumn('kpis', 'start_date', 'TEXT');
   addColumn('kpis', 'end_date', 'TEXT');
   addColumn('kpis', 'target_distribution', "TEXT DEFAULT 'equal'");
+  addColumn('initiatives', 'status', "TEXT DEFAULT 'active'");
+  addColumn('long_term_objectives', 'status', "TEXT DEFAULT 'active'");
+  addColumn('annual_objectives', 'status', "TEXT DEFAULT 'active'");
   addColumn('long_term_objectives', 'jira_epic_key', 'TEXT');
   addColumn('long_term_objectives', 'jira_epic_url', 'TEXT');
   addColumn('long_term_objectives', 'jira_last_synced', 'INTEGER');
@@ -70,6 +154,8 @@ function runMigrations(): void {
   addColumn('initiatives', 'jira_last_synced', 'INTEGER');
   addColumn('initiatives', 'jira_sync_status', "TEXT CHECK(jira_sync_status IN ('synced', 'pending', 'error'))");
   addColumn('initiatives', 'jira_sync_error', 'TEXT');
+
+  rebuildKpiTargetDistributionConstraint();
   
   // Check if year column exists in monthly_kpi_data table
   try {
@@ -311,10 +397,11 @@ export function getLongTermObjectivesByXMatrix(xmatrixId: string): LongTermObjec
     description: string;
     timeframe: string;
     health: string;
+    status: string | null;
     jira_epic_key: string | null;
     jira_epic_url: string | null;
   }[];
-  
+
   return rows.map(row => ({
     id: row.id,
     code: row.code,
@@ -322,6 +409,7 @@ export function getLongTermObjectivesByXMatrix(xmatrixId: string): LongTermObjec
     description: row.description,
     timeframe: row.timeframe,
     health: row.health as HealthStatus,
+    status: (row.status ?? 'active') as LongTermObjective['status'],
     jiraEpicKey: row.jira_epic_key ?? undefined,
     jiraEpicUrl: row.jira_epic_url ?? undefined,
   }));
@@ -336,19 +424,21 @@ export function getLongTermObjectiveById(id: string): LongTermObjective | null {
     description: string;
     timeframe: string;
     health: string;
+    status: string | null;
     jira_epic_key: string | null;
     jira_epic_url: string | null;
-  } | undefined;  
-  
+  } | undefined;
+
   if (!row) return null;
-  
-  return { //
+
+  return {
     id: row.id,
     code: row.code,
     title: row.title,
     description: row.description,
     timeframe: row.timeframe,
     health: row.health as HealthStatus,
+    status: (row.status ?? 'active') as LongTermObjective['status'],
     jiraEpicKey: row.jira_epic_key ?? undefined,
     jiraEpicUrl: row.jira_epic_url ?? undefined,
   };
@@ -357,11 +447,11 @@ export function getLongTermObjectiveById(id: string): LongTermObjective | null {
 export function createLongTermObjective(xmatrixId: string, data: LongTermObjective): LongTermObjective {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health, jira_epic_key, jira_epic_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO long_term_objectives (id, xmatrix_id, code, title, description, timeframe, health, status, jira_epic_key, jira_epic_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  
-  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.timeframe, data.health, data.jiraEpicKey ?? null, data.jiraEpicUrl ?? null);
+
+  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.timeframe, data.health, data.status ?? 'active', data.jiraEpicKey ?? null, data.jiraEpicUrl ?? null);
   return getLongTermObjectiveById(data.id)!; //the purpose of the ! at the end of this line? It is a non-null assertion operator in TypeScript. It tells the TypeScript compiler that we are certain that the value returned by getLongTermObjectiveById(data.id) will not be null or undefined. In this context, since we just inserted a new long-term objective with data.id, we expect that fetching it immediately afterward will succeed and return a valid LongTermObjective object. By using the ! operator, we avoid having to handle the case where it might return null, which simplifies our code. However, it's important to use this operator with caution, as it can lead to runtime errors if our assumption is incorrect.
 }
 
@@ -369,23 +459,24 @@ export function updateLongTermObjective(id: string, data: Partial<LongTermObject
   const db = getDatabase();
   const current = getLongTermObjectiveById(id);
   if (!current) return null;
-  
+
   const stmt = db.prepare(`
-    UPDATE long_term_objectives SET code = ?, title = ?, description = ?, timeframe = ?, health = ?, jira_epic_key = ?, jira_epic_url = ?
+    UPDATE long_term_objectives SET code = ?, title = ?, description = ?, timeframe = ?, health = ?, status = ?, jira_epic_key = ?, jira_epic_url = ?
     WHERE id = ?
-  `); 
-  
+  `);
+
   stmt.run(
     data.code ?? current.code,
     data.title ?? current.title,
     data.description ?? current.description,
     data.timeframe ?? current.timeframe,
     data.health ?? current.health,
+    data.status ?? current.status ?? 'active',
     data.jiraEpicKey ?? current.jiraEpicKey ?? null,
     data.jiraEpicUrl ?? current.jiraEpicUrl ?? null,
     id
   );
-  
+
   return getLongTermObjectiveById(id);
 }
 
@@ -399,7 +490,7 @@ export function deleteLongTermObjective(id: string): boolean {
 
 // ============ Annual Objective CRUD ============
 
-export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective[] { 
+export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective[] {
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM annual_objectives WHERE xmatrix_id = ?').all(xmatrixId) as {
     id: string;
@@ -409,10 +500,11 @@ export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective
     year: number;
     health: string;
     progress: number;
+    status: string | null;
     jira_epic_key: string | null;
     jira_epic_url: string | null;
   }[];
-  
+
   return rows.map(row => ({
     id: row.id,
     code: row.code,
@@ -421,6 +513,7 @@ export function getAnnualObjectivesByXMatrix(xmatrixId: string): AnnualObjective
     year: row.year,
     health: row.health as HealthStatus,
     progress: row.progress,
+    status: (row.status ?? 'active') as AnnualObjective['status'],
     jiraEpicKey: row.jira_epic_key ?? undefined,
     jiraEpicUrl: row.jira_epic_url ?? undefined,
   }));
@@ -436,12 +529,13 @@ export function getAnnualObjectiveById(id: string): AnnualObjective | null {
     year: number;
     health: string;
     progress: number;
+    status: string | null;
     jira_epic_key: string | null;
     jira_epic_url: string | null;
   } | undefined;
-  
+
   if (!row) return null;
-  
+
   return {
     id: row.id,
     code: row.code,
@@ -450,6 +544,7 @@ export function getAnnualObjectiveById(id: string): AnnualObjective | null {
     year: row.year,
     health: row.health as HealthStatus,
     progress: row.progress,
+    status: (row.status ?? 'active') as AnnualObjective['status'],
     jiraEpicKey: row.jira_epic_key ?? undefined,
     jiraEpicUrl: row.jira_epic_url ?? undefined,
   };
@@ -458,11 +553,11 @@ export function getAnnualObjectiveById(id: string): AnnualObjective | null {
 export function createAnnualObjective(xmatrixId: string, data: AnnualObjective): AnnualObjective {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress, jira_epic_key, jira_epic_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO annual_objectives (id, xmatrix_id, code, title, description, year, health, progress, status, jira_epic_key, jira_epic_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  
-  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.year, data.health, data.progress, data.jiraEpicKey ?? null, data.jiraEpicUrl ?? null); 
+
+  stmt.run(data.id, xmatrixId, data.code, data.title, data.description, data.year, data.health, data.progress, data.status ?? 'active', data.jiraEpicKey ?? null, data.jiraEpicUrl ?? null);
   return getAnnualObjectiveById(data.id)!;
 }
 
@@ -470,12 +565,12 @@ export function updateAnnualObjective(id: string, data: Partial<AnnualObjective>
   const db = getDatabase();
   const current = getAnnualObjectiveById(id);
   if (!current) return null;
-  
+
   const stmt = db.prepare(`
-    UPDATE annual_objectives SET code = ?, title = ?, description = ?, year = ?, health = ?, progress = ?, jira_epic_key = ?, jira_epic_url = ?
+    UPDATE annual_objectives SET code = ?, title = ?, description = ?, year = ?, health = ?, progress = ?, status = ?, jira_epic_key = ?, jira_epic_url = ?
     WHERE id = ?
   `);
-  
+
   stmt.run(
     data.code ?? current.code,
     data.title ?? current.title,
@@ -483,11 +578,12 @@ export function updateAnnualObjective(id: string, data: Partial<AnnualObjective>
     data.year ?? current.year,
     data.health ?? current.health,
     data.progress ?? current.progress,
+    data.status ?? current.status ?? 'active',
     data.jiraEpicKey ?? current.jiraEpicKey ?? null,
     data.jiraEpicUrl ?? current.jiraEpicUrl ?? null,
     id
   );
-  
+
   return getAnnualObjectiveById(id);
 }
 
@@ -501,7 +597,7 @@ export function deleteAnnualObjective(id: string): boolean {
 
 // ============ Initiative CRUD ============
 
-export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] { 
+export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] {
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM initiatives WHERE xmatrix_id = ?').all(xmatrixId) as {
     id: string;
@@ -510,6 +606,7 @@ export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] {
     description: string;
     priority: string;
     health: string;
+    status: string | null;
     start_date: string;
     end_date: string;
     jira_issue_type: 'story' | 'task' | null;
@@ -519,14 +616,15 @@ export function getInitiativesByXMatrix(xmatrixId: string): Initiative[] {
     jira_sync_status: 'synced' | 'pending' | 'error' | null;
     jira_sync_error: string | null;
   }[];
-  
+
   return rows.map(row => ({
     id: row.id,
     code: row.code,
     title: row.title,
     description: row.description,
-    priority: row.priority as Initiative['priority'], 
+    priority: row.priority as Initiative['priority'],
     health: row.health as HealthStatus,
+    status: (row.status ?? 'active') as Initiative['status'],
     startDate: row.start_date,
     endDate: row.end_date,
     jiraIssueType: row.jira_issue_type ?? undefined,
@@ -547,6 +645,7 @@ export function getInitiativeById(id: string): Initiative | null {
     description: string;
     priority: string;
     health: string;
+    status: string | null;
     start_date: string;
     end_date: string;
     jira_issue_type: 'story' | 'task' | null;
@@ -554,11 +653,11 @@ export function getInitiativeById(id: string): Initiative | null {
     jira_issue_url: string | null;
     jira_last_synced: number | null;
     jira_sync_status: 'synced' | 'pending' | 'error' | null;
-    jira_sync_error: string | null; // stores the error message
+    jira_sync_error: string | null;
   } | undefined;
-  
+
   if (!row) return null;
-  
+
   return {
     id: row.id,
     code: row.code,
@@ -566,6 +665,7 @@ export function getInitiativeById(id: string): Initiative | null {
     description: row.description,
     priority: row.priority as Initiative['priority'],
     health: row.health as HealthStatus,
+    status: (row.status ?? 'active') as Initiative['status'],
     startDate: row.start_date,
     endDate: row.end_date,
     jiraIssueType: row.jira_issue_type ?? undefined,
@@ -587,10 +687,10 @@ export function getInitiativeByJiraIssueKey(jiraIssueKey: string): Initiative | 
 export function createInitiative(xmatrixId: string, data: Initiative): Initiative {
   const db = getDatabase();
   const stmt = db.prepare(`
-    INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, start_date, end_date, jira_issue_type, jira_issue_key, jira_issue_url, jira_last_synced, jira_sync_status, jira_sync_error)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO initiatives (id, xmatrix_id, code, title, description, priority, health, status, start_date, end_date, jira_issue_type, jira_issue_key, jira_issue_url, jira_last_synced, jira_sync_status, jira_sync_error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  
+
   stmt.run(
     data.id,
     xmatrixId,
@@ -599,6 +699,7 @@ export function createInitiative(xmatrixId: string, data: Initiative): Initiativ
     data.description,
     data.priority,
     data.health,
+    data.status ?? 'active',
     data.startDate,
     data.endDate,
     data.jiraIssueType ?? null,
@@ -615,18 +716,19 @@ export function updateInitiative(id: string, data: Partial<Initiative>): Initiat
   const db = getDatabase();
   const current = getInitiativeById(id);
   if (!current) return null;
-  
+
   const stmt = db.prepare(`
-    UPDATE initiatives SET code = ?, title = ?, description = ?, priority = ?, health = ?, start_date = ?, end_date = ?, jira_issue_type = ?, jira_issue_key = ?, jira_issue_url = ?, jira_last_synced = ?, jira_sync_status = ?, jira_sync_error = ?
+    UPDATE initiatives SET code = ?, title = ?, description = ?, priority = ?, health = ?, status = ?, start_date = ?, end_date = ?, jira_issue_type = ?, jira_issue_key = ?, jira_issue_url = ?, jira_last_synced = ?, jira_sync_status = ?, jira_sync_error = ?
     WHERE id = ?
   `);
-  
+
   stmt.run(
     data.code ?? current.code,
     data.title ?? current.title,
     data.description ?? current.description,
     data.priority ?? current.priority,
     data.health ?? current.health,
+    data.status ?? current.status ?? 'active',
     data.startDate ?? current.startDate,
     data.endDate ?? current.endDate,
     data.jiraIssueType ?? current.jiraIssueType ?? null,
@@ -637,7 +739,7 @@ export function updateInitiative(id: string, data: Partial<Initiative>): Initiat
     data.jiraSyncError ?? current.jiraSyncError ?? null,
     id
   );
-  
+
   return getInitiativeById(id);
 }
 
@@ -815,22 +917,30 @@ export function updateKPI(id: string, data: Partial<KPI> & { monthlyDataYear?: n
     const fallbackYear = current.startDate
       ? new Date(current.startDate).getFullYear()
       : new Date().getFullYear();
-    const defaultYear = data.monthlyDataYear
-      ?? data.monthlyData.find(m => typeof m.year === 'number')?.year
-      ?? fallbackYear;
+    const normalizedMonthly = data.monthlyData.map((m) => ({
+      ...m,
+      year: m.year ?? data.monthlyDataYear ?? fallbackYear,
+    }));
+
+    const yearsToRewrite = Array.from(new Set(normalizedMonthly.map((m) => m.year)));
+
     const existingRows = db.prepare(
-      'SELECT month, actual, variance FROM monthly_kpi_data WHERE kpi_id = ? AND year = ?'
-    ).all(id, defaultYear) as { month: string; actual: number | null; variance: number | null }[];
-    const existingByMonth = new Map(existingRows.map(r => [r.month, r]));
+      'SELECT year, month, actual, variance FROM monthly_kpi_data WHERE kpi_id = ?'
+    ).all(id) as { year: number; month: string; actual: number | null; variance: number | null }[];
+
+    const existingByYearMonth = new Map(existingRows.map(r => [`${r.year}-${r.month}`, r]));
     const monthlyDeleteByKpiYear = db.prepare('DELETE FROM monthly_kpi_data WHERE kpi_id = ? AND year = ?');
     const monthlyInsert = db.prepare('INSERT INTO monthly_kpi_data (kpi_id, year, month, target, actual, variance) VALUES (?, ?, ?, ?, ?, ?)');
     
-    monthlyDeleteByKpiYear.run(id, defaultYear);
-    for (const m of data.monthlyData) {
-      const existing = existingByMonth.get(m.month);
+    for (const year of yearsToRewrite) {
+      monthlyDeleteByKpiYear.run(id, year);
+    }
+
+    for (const m of normalizedMonthly) {
+      const existing = existingByYearMonth.get(`${m.year}-${m.month}`);
       const nextActual = m.actual ?? existing?.actual ?? null;
       const nextVariance = m.variance ?? existing?.variance ?? null;
-      monthlyInsert.run(id, m.year ?? defaultYear, m.month, m.target, nextActual, nextVariance);
+      monthlyInsert.run(id, m.year, m.month, m.target, nextActual, nextVariance);
     }
   }
 
@@ -965,18 +1075,6 @@ export function getMonthlyDataByKPI(kpiId: string, year: number = new Date().get
     actual: number | null;
     variance: number | null;
   }[];
-
-  const latestYear = db.prepare(
-    'SELECT year FROM monthly_kpi_data WHERE kpi_id = ? AND year IS NOT NULL ORDER BY year DESC LIMIT 1'
-  ).get(kpiId) as { year: number } | undefined;
-
-  let targetTemplate = new Map<string, number>();
-  if (rows.length === 0 && latestYear) {
-    const latestRows = db.prepare(
-      'SELECT month, target FROM monthly_kpi_data WHERE kpi_id = ? AND year = ? ORDER BY id'
-    ).all(kpiId, latestYear.year) as { month: string; target: number }[];
-    targetTemplate = new Map(latestRows.map(r => [r.month, r.target]));
-  }
   
   const monthlyData = rows.map(row => ({
     year,
@@ -995,7 +1093,7 @@ export function getMonthlyDataByKPI(kpiId: string, year: number = new Date().get
     return {
       year,
       month,
-      target: targetTemplate.get(month) ?? 0,
+      target: 0,
       actual: null,
       variance: null,
     };

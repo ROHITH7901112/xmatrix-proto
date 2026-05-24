@@ -29,7 +29,7 @@ type HealthStatus = 'on-track' | 'at-risk' | 'off-track';
 type Priority = 'critical' | 'high' | 'medium' | 'low';
 type Trend = 'up' | 'down' | 'stable';
 type ResponsibilityType = 'accountable' | 'responsible' | 'consulted' | 'informed';
-type TargetDistribution = 'equal' | 'linear' | 'front-loaded';
+type TargetDistribution = 'equal' | 'linear' | 'front-loaded' | 'custom';
 
 const KPI_UNITS = [
   { value: '%', label: '% — Percentage' },
@@ -73,6 +73,7 @@ interface Initiative {
     description: string;
     priority: Priority;
     health: HealthStatus;
+    status?: 'active' | 'done';
     startDate: string;
     endDate: string;
 }
@@ -87,7 +88,7 @@ interface KPI {
     health: HealthStatus;
     trend: Trend;
     ownerIds: string[];
-    monthlyData: { month: string; target: number; actual: number | null; variance: number | null }[];
+    monthlyData: { year?: number; month: string; target: number; actual: number | null; variance: number | null }[];
     startDate?: string;
     endDate?: string;
     targetDistribution?: TargetDistribution;
@@ -100,6 +101,14 @@ interface Owner {
     avatar: string;
     initials: string;
     responsibilityType: ResponsibilityType;
+}
+
+interface XMatrixRelationship {
+    sourceType: string;
+    sourceId: string;
+    targetType: string;
+    targetId: string;
+    strength: string;
 }
 
 interface XMatrixData {
@@ -115,6 +124,22 @@ interface XMatrixData {
     initiatives: Initiative[];
     kpis: KPI[];
     owners: Owner[];
+    relationships?: XMatrixRelationship[];
+}
+
+function computeAOProgress(aoId: string, data: XMatrixData | null): { pct: number; done: number; total: number } {
+    if (!data?.relationships) return { pct: 0, done: 0, total: 0 };
+    const relatedInitIds = data.relationships
+        .filter(r => r.strength !== 'none')
+        .filter(r =>
+            (r.sourceType === 'ao' && r.sourceId === aoId && r.targetType === 'initiative') ||
+            (r.targetType === 'ao' && r.targetId === aoId && r.sourceType === 'initiative')
+        )
+        .map(r => r.sourceType === 'ao' && r.sourceId === aoId ? r.targetId : r.sourceId);
+    const linked = data.initiatives.filter(i => relatedInitIds.includes(i.id));
+    if (linked.length === 0) return { pct: 0, done: 0, total: 0 };
+    const done = linked.filter(i => i.status === 'done').length;
+    return { pct: Math.round((done / linked.length) * 100), done, total: linked.length };
 }
 
 type EntityType = 'lto' | 'ao' | 'initiative' | 'kpi' | 'owner';
@@ -297,7 +322,7 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
     return (
         <button
             onClick={onClick}
-            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white font-medium rounded-lg shadow-lg shadow-blue-500/25 transition-all"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-blue-400/30 bg-gradient-to-r from-blue-500 to-violet-600 text-white font-semibold shadow-lg shadow-blue-500/30 ring-1 ring-white/10 hover:from-blue-400 hover:to-violet-500 hover:shadow-blue-500/40 transition-all"
         >
             <Plus className="w-4 h-4" />
             {label}
@@ -409,19 +434,16 @@ function AOForm({
             </div>
             <FormInput label="Title" placeholder="Expand Enterprise Client Base" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
             <FormTextarea label="Description" placeholder="Describe the annual objective..." value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
-            <div className="grid grid-cols-2 gap-4">
-                <FormSelect
-                    label="Health Status"
-                    value={formData.health}
-                    onChange={(e) => setFormData({ ...formData, health: e.target.value as HealthStatus })}
-                    options={[
-                        { value: 'on-track', label: 'On Track' },
-                        { value: 'at-risk', label: 'At Risk' },
-                        { value: 'off-track', label: 'Off Track' },
-                    ]}
-                />
-                <FormInput label="Progress (%)" type="number" min="0" max="100" value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) || 0 })} />
-            </div>
+            <FormSelect
+                label="Health Status"
+                value={formData.health}
+                onChange={(e) => setFormData({ ...formData, health: e.target.value as HealthStatus })}
+                options={[
+                    { value: 'on-track', label: 'On Track' },
+                    { value: 'at-risk', label: 'At Risk' },
+                    { value: 'off-track', label: 'Off Track' },
+                ]}
+            />
             <div className="flex justify-end gap-3 pt-4">
                 <button type="button" onClick={onCancel} className="px-4 py-2 text-slate-300 hover:text-white transition-colors">Cancel</button>
                 <button type="submit" disabled={isLoading} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors disabled:opacity-50">
@@ -513,7 +535,7 @@ function computeDistributedTargets(
     endDate: string,
     distribution: TargetDistribution,
     currentValue: number = 0,
-): { month: string; target: number; actual: number | null; variance: null }[] {
+): { year?: number; month: string; target: number; actual: number | null; variance: null }[] {
     if (!startDate || !endDate) {
         const perMonth = totalTarget / 12;
         return ALL_MONTHS_BC.map(month => ({ month, target: Math.round(perMonth * 100) / 100, actual: null, variance: null }));
@@ -587,6 +609,65 @@ function computeDistributedTargets(
     }));
 }
 
+const getMonthlyRowKey = (year: number | undefined, month: string) => `${year ?? ''}-${month}`;
+
+const sumMonthlyTargets = (monthlyData: { target: number }[]) =>
+    Math.round(monthlyData.reduce((sum, row) => sum + (Number.isFinite(row.target) ? row.target : 0), 0) * 100) / 100;
+
+const buildCustomMonthlyTargets = (
+    startDate: string,
+    endDate: string,
+    totalTarget: number,
+    existingMonthlyData: { year?: number; month: string; target: number; actual: number | null; variance: number | null }[] = [],
+) => {
+    if (!startDate || !endDate) {
+        const baseYear = new Date().getFullYear();
+        const fallbackTarget = Math.round((totalTarget / 12) * 100) / 100;
+        return ALL_MONTHS_BC.map((month) => ({ year: baseYear, month, target: fallbackTarget, actual: null, variance: null }));
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const activeMonths: { year: number; month: string; monthIndex: number }[] = [];
+
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end >= start) {
+        const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+        const endCursor = new Date(end.getFullYear(), end.getMonth(), 1);
+        while (cursor <= endCursor && activeMonths.length < 60) {
+            activeMonths.push({
+                year: cursor.getFullYear(),
+                month: ALL_MONTHS_BC[cursor.getMonth()],
+                monthIndex: cursor.getMonth(),
+            });
+            cursor.setMonth(cursor.getMonth() + 1);
+        }
+    }
+
+    if (activeMonths.length === 0) {
+        const baseYear = new Date().getFullYear();
+        const fallbackTarget = Math.round((totalTarget / 12) * 100) / 100;
+        return ALL_MONTHS_BC.map((month) => ({ year: baseYear, month, target: fallbackTarget, actual: null, variance: null }));
+    }
+
+    const existingByKey = new Map<string, { year?: number; month: string; target: number; actual: number | null; variance: number | null }>();
+    existingMonthlyData.forEach((row) => {
+        existingByKey.set(getMonthlyRowKey(row.year, row.month), row);
+        existingByKey.set(row.month, row);
+    });
+
+    const fallbackTarget = Math.round((totalTarget / activeMonths.length) * 100) / 100;
+    return activeMonths.map((month) => {
+        const existing = existingByKey.get(getMonthlyRowKey(month.year, month.month)) ?? existingByKey.get(month.month);
+        return {
+            year: month.year,
+            month: month.month,
+            target: existing?.target ?? fallbackTarget,
+            actual: existing?.actual ?? null,
+            variance: existing?.variance ?? null,
+        };
+    });
+};
+
 // KPI Form
 function KPIForm({
     initialData,
@@ -619,58 +700,138 @@ function KPIForm({
         targetDistribution: 'equal',
     });
 
-    const previewMonthly = computeDistributedTargets(
-        formData.targetValue,
-        formData.startDate || '',
-        formData.endDate || '',
-        formData.targetDistribution || 'equal',
-        formData.currentValue,
-    );
+    const isCustomDistribution = formData.targetDistribution === 'custom';
+
+    const updateCustomMonthlyTargets = (nextMonthlyData: { year?: number; month: string; target: number; actual: number | null; variance: number | null }[]) => {
+        const normalizedMonthlyData = nextMonthlyData.map((row) => ({
+            ...row,
+            target: Math.round((Number.isFinite(row.target) ? row.target : 0) * 100) / 100,
+        }));
+
+        setFormData((prev) => ({
+            ...prev,
+            monthlyData: normalizedMonthlyData,
+            targetValue: sumMonthlyTargets(normalizedMonthlyData),
+        }));
+    };
+
+    const handleDistributionChange = (distribution: TargetDistribution) => {
+        if (distribution === 'custom') {
+            setFormData((prev) => {
+                const monthlyData = buildCustomMonthlyTargets(
+                    prev.startDate || '',
+                    prev.endDate || '',
+                    prev.targetValue,
+                    prev.monthlyData,
+                );
+
+                return {
+                    ...prev,
+                    targetDistribution: distribution,
+                    monthlyData,
+                    targetValue: sumMonthlyTargets(monthlyData),
+                };
+            });
+            return;
+        }
+
+        setFormData((prev) => ({
+            ...prev,
+            targetDistribution: distribution,
+        }));
+    };
+
+    const handleRangeChange = (field: 'startDate' | 'endDate', value: string) => {
+        setFormData((prev) => {
+            const nextFormData = { ...prev, [field]: value };
+
+            if (prev.targetDistribution !== 'custom') {
+                return nextFormData;
+            }
+
+            const monthlyData = buildCustomMonthlyTargets(
+                field === 'startDate' ? value : prev.startDate || '',
+                field === 'endDate' ? value : prev.endDate || '',
+                prev.targetValue,
+                prev.monthlyData,
+            );
+
+            return {
+                ...nextFormData,
+                monthlyData,
+                targetValue: sumMonthlyTargets(monthlyData),
+            };
+        });
+    };
+
+    const previewMonthly = isCustomDistribution
+        ? formData.monthlyData
+        : computeDistributedTargets(
+            formData.targetValue,
+            formData.startDate || '',
+            formData.endDate || '',
+            formData.targetDistribution || 'equal',
+            formData.currentValue,
+        );
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Check if target calculation parameters changed
-        const targetParamsChanged =
-            !initialData ||
-            initialData.targetValue !== formData.targetValue ||
-            initialData.startDate !== formData.startDate ||
-            initialData.endDate !== formData.endDate ||
-            initialData.targetDistribution !== formData.targetDistribution;
+        let monthlyData: { year?: number; month: string; target: number; actual: number | null; variance: null }[];
 
-        let monthlyData: { month: string; target: number; actual: number | null; variance: null }[];
-
-        if (targetParamsChanged) {
-            // Recalculate targets if parameters changed, but preserve actuals
-            const distributedTargets = computeDistributedTargets(
-                formData.targetValue,
-                formData.startDate || '',
-                formData.endDate || '',
-                formData.targetDistribution || 'equal',
-                formData.currentValue,
-            );
-
-            const existingByMonth = new Map(
-                (initialData?.monthlyData ?? []).map((m) => [m.month, m])
-            );
-            monthlyData = distributedTargets.map((m) => { 
-                const existing = existingByMonth.get(m.month);
-                return {
-                    ...m,
-                    actual: existing?.actual ?? m.actual, // what does m mean here 
-                    variance: null,
-                };
-            });
-        } else {
-            // Target parameters didn't change, preserve all existing monthly data (but normalize variance to null)
-            monthlyData = (initialData?.monthlyData ?? []).map((m) => ({ 
-                ...m, 
-                variance: null, 
+        if (formData.targetDistribution === 'custom') {
+            monthlyData = formData.monthlyData.map((m) => ({
+                ...m,
+                target: Math.round((Number.isFinite(m.target) ? m.target : 0) * 100) / 100,
+                actual: m.actual ?? null,
+                variance: null,
             }));
+        } else {
+            // Check if target calculation parameters changed
+            const targetParamsChanged =
+                !initialData ||
+                initialData.targetValue !== formData.targetValue ||
+                initialData.startDate !== formData.startDate ||
+                initialData.endDate !== formData.endDate ||
+                initialData.targetDistribution !== formData.targetDistribution;
+
+            if (targetParamsChanged) {
+                // Recalculate targets if parameters changed, but preserve actuals
+                const distributedTargets = computeDistributedTargets(
+                    formData.targetValue,
+                    formData.startDate || '',
+                    formData.endDate || '',
+                    formData.targetDistribution || 'equal',
+                    formData.currentValue,
+                );
+
+                const existingByMonth = new Map(
+                    (initialData?.monthlyData ?? []).map((m) => [getMonthlyRowKey(m.year, m.month), m])
+                );
+                monthlyData = distributedTargets.map((m) => {
+                    const existing = existingByMonth.get(getMonthlyRowKey(m.year, m.month)) ?? existingByMonth.get(m.month);
+                    return {
+                        ...m,
+                        actual: existing?.actual ?? m.actual,
+                        variance: null,
+                    };
+                });
+            } else {
+                // Target parameters didn't change, preserve all existing monthly data (but normalize variance to null)
+                monthlyData = (initialData?.monthlyData ?? []).map((m) => ({
+                    ...m,
+                    variance: null,
+                }));
+            }
         }
 
+        const normalizedTargetValue = formData.targetDistribution === 'custom'
+            ? sumMonthlyTargets(monthlyData)
+            : formData.targetValue;
+
         onSubmit({
-            ...formData, 
+            ...formData,
+            targetValue: normalizedTargetValue,
             monthlyData,
         });
     };
@@ -709,33 +870,70 @@ function KPIForm({
             <FormInput label="Title" placeholder="Enterprise Win Rate" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} required />
             <div className="grid grid-cols-2 gap-4">
                 <FormInput label="Current Value" type="number" step="0.01" value={formData.currentValue} onChange={(e) => setFormData({ ...formData, currentValue: parseFloat(e.target.value) || 0 })} required />
-                <FormInput label={`Annual Target (${formData.unit || '?'})`} type="number" step="0.01" value={formData.targetValue} onChange={(e) => setFormData({ ...formData, targetValue: parseFloat(e.target.value) || 0 })} required />
+                <FormInput label={`Annual Target (${formData.unit || '?'})`} type="number" step="0.01" value={formData.targetValue} onChange={(e) => setFormData({ ...formData, targetValue: parseFloat(e.target.value) || 0 })} readOnly={isCustomDistribution} required />
             </div>
             <div className="grid grid-cols-2 gap-4">
-                <FormInput label="Start Date" type="date" value={formData.startDate || ''} onChange={(e) => setFormData({ ...formData, startDate: e.target.value })} required />
-                <FormInput label="End Date" type="date" value={formData.endDate || ''} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} required />
+                <FormInput label="Start Date" type="date" value={formData.startDate || ''} onChange={(e) => handleRangeChange('startDate', e.target.value)} required />
+                <FormInput label="End Date" type="date" value={formData.endDate || ''} onChange={(e) => handleRangeChange('endDate', e.target.value)} required />
             </div>
             <FormSelect
                 label="Target Distribution Across Months"
                 value={formData.targetDistribution || 'equal'}
-                onChange={(e) => setFormData({ ...formData, targetDistribution: e.target.value as TargetDistribution })}
+                onChange={(e) => handleDistributionChange(e.target.value as TargetDistribution)}
                 options={[
                     { value: 'equal', label: 'Equal — same target every active month' },
                     { value: 'linear', label: 'Linear ramp-up — increases each month' },
                     { value: 'front-loaded', label: 'Front-loaded — higher target in early months' },
+                    { value: 'custom', label: 'Custom — set each month manually' },
                 ]}
             />
             {/* Monthly preview */}
             <div className="rounded-lg border border-slate-700 overflow-hidden">
-                <div className="px-3 py-2 bg-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wide">Monthly Target Preview</div>
-                <div className="grid grid-cols-6 gap-px bg-slate-700">
-                    {previewMonthly.map(({ month, target }) => (
-                        <div key={month} className="flex flex-col items-center px-1 py-2 bg-slate-900 text-center">
-                            <span className="text-[10px] text-slate-500 mb-0.5">{month}</span>
-                            <span className={`text-xs font-semibold ${target > 0 ? 'text-blue-300' : 'text-slate-600'}`}>{target > 0 ? target : '—'}</span>
-                        </div>
-                    ))}
-                </div>
+                <div className="px-3 py-2 bg-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wide">{isCustomDistribution ? 'Custom Monthly Targets' : 'Monthly Target Preview'}</div>
+                {isCustomDistribution ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-px bg-slate-700">
+                        {previewMonthly.map(({ month, target, year }) => (
+                            <label key={getMonthlyRowKey(year, month)} className="flex flex-col gap-2 px-2 py-3 bg-slate-900 text-left">
+                                <div>
+                                    <span className="block text-[10px] text-slate-500 uppercase tracking-wide">{month}</span>
+                                    {year && <span className="block text-[9px] text-slate-600">{year}</span>}
+                                </div>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={target}
+                                    onChange={(e) => {
+                                        const nextTarget = parseFloat(e.target.value) || 0;
+                                        updateCustomMonthlyTargets(
+                                            formData.monthlyData.map((row) =>
+                                                getMonthlyRowKey(row.year, row.month) === getMonthlyRowKey(year, month)
+                                                    ? { ...row, target: nextTarget }
+                                                    : row
+                                            ),
+                                        );
+                                    }}
+                                    className="w-full px-2 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </label>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-6 gap-px bg-slate-700">
+                        {previewMonthly.map(({ month, target }) => (
+                            <div key={month} className="flex flex-col items-center px-1 py-2 bg-slate-900 text-center">
+                                <span className="text-[10px] text-slate-500 mb-0.5">{month}</span>
+                                <span className={`text-xs font-semibold ${target > 0 ? 'text-blue-300' : 'text-slate-600'}`}>{target > 0 ? target : '—'}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {isCustomDistribution && (
+                    <div className="px-3 py-2 bg-slate-800/60 border-t border-slate-700 text-xs text-slate-400 flex items-center justify-between gap-3">
+                        <span>Annual target updates automatically from the monthly values.</span>
+                        <span className="font-semibold text-slate-200">Total: {formData.targetValue}</span>
+                    </div>
+                )}
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <FormSelect
@@ -1196,7 +1394,7 @@ export default function ManagePage() {
                     {activeTab === 'lto' && (
                         <motion.div key="lto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                             <SectionHeader icon={Target} title="Long-Term Objectives" count={data?.longTermObjectives.length || 0} onAdd={() => openAddModal('lto')} addLabel="Add LTO" />
-                            <div className="grid gap-4 md:grid-cols-2">
+                            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                                 <AnimatePresence>
                                     {data?.longTermObjectives.map((lto) => (
                                         <EntityCard key={lto.id} onEdit={() => openEditModal('lto', lto)} onDelete={() => handleDeleteLTO(lto.id)}>
@@ -1211,8 +1409,9 @@ export default function ManagePage() {
                                     ))}
                                 </AnimatePresence>
                                 {data?.longTermObjectives.length === 0 && (
-                                    <div className="col-span-2 py-12 text-center text-slate-500">
-                                        No long-term objectives yet. Click &quot;Add LTO&quot; to create one.
+                                    <div className="col-span-2 py-16 flex flex-col items-center gap-3 text-center">
+                                        <p className="text-slate-400 text-sm">No long-term objectives yet.</p>
+                                        <button onClick={() => openAddModal('lto')} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">+ Add Long-Term Objective</button>
                                     </div>
                                 )}
                             </div>
@@ -1223,7 +1422,7 @@ export default function ManagePage() {
                     {activeTab === 'ao' && (
                         <motion.div key="ao" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                             <SectionHeader icon={Calendar} title="Annual Objectives" count={data?.annualObjectives.length || 0} onAdd={() => openAddModal('ao')} addLabel="Add AO" />
-                            <div className="grid gap-4 md:grid-cols-2">
+                            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                                 <AnimatePresence>
                                     {data?.annualObjectives.map((ao) => (
                                         <EntityCard key={ao.id} onEdit={() => openEditModal('ao', ao)} onDelete={() => handleDeleteAO(ao.id)}>
@@ -1236,18 +1435,28 @@ export default function ManagePage() {
                                             <div className="flex items-center justify-between">
                                                 <span className="text-xs text-slate-500">{ao.year}</span>
                                                 <div className="flex items-center gap-2">
-                                                    <div className="w-24 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                                                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${ao.progress}%` }} />
-                                                    </div>
-                                                    <span className="text-xs text-slate-400">{ao.progress}%</span>
+                                                    {(() => {
+                                                        const { pct, done, total } = computeAOProgress(ao.id, data);
+                                                        return (
+                                                            <>
+                                                                <div className="w-24 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                                                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+                                                                </div>
+                                                                <span className="text-xs text-slate-400">
+                                                                    {total > 0 ? `${done}/${total} done` : '0 linked'}
+                                                                </span>
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         </EntityCard>
                                     ))}
                                 </AnimatePresence>
                                 {data?.annualObjectives.length === 0 && (
-                                    <div className="col-span-2 py-12 text-center text-slate-500">
-                                        No annual objectives yet. Click &quot;Add AO&quot; to create one.
+                                    <div className="col-span-2 py-16 flex flex-col items-center gap-3 text-center">
+                                        <p className="text-slate-400 text-sm">No annual objectives yet.</p>
+                                        <button onClick={() => openAddModal('ao')} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">+ Add Annual Objective</button>
                                     </div>
                                 )}
                             </div>
@@ -1258,7 +1467,7 @@ export default function ManagePage() {
                     {activeTab === 'initiative' && (
                         <motion.div key="initiative" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                             <SectionHeader icon={Rocket} title="Initiatives" count={data?.initiatives.length || 0} onAdd={() => openAddModal('initiative')} addLabel="Add Initiative" />
-                            <div className="grid gap-4 md:grid-cols-2">
+                            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                                 <AnimatePresence>
                                     {data?.initiatives.map((initiative) => (
                                         <EntityCard key={initiative.id} onEdit={() => openEditModal('initiative', initiative)} onDelete={() => handleDeleteInitiative(initiative.id)}>
@@ -1276,8 +1485,9 @@ export default function ManagePage() {
                                     ))}
                                 </AnimatePresence>
                                 {data?.initiatives.length === 0 && (
-                                    <div className="col-span-2 py-12 text-center text-slate-500">
-                                        No initiatives yet. Click &quot;Add Initiative&quot; to create one.
+                                    <div className="col-span-2 py-16 flex flex-col items-center gap-3 text-center">
+                                        <p className="text-slate-400 text-sm">No initiatives yet.</p>
+                                        <button onClick={() => openAddModal('initiative')} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">+ Add Initiative</button>
                                     </div>
                                 )}
                             </div>
@@ -1288,7 +1498,7 @@ export default function ManagePage() {
                     {activeTab === 'kpi' && (
                         <motion.div key="kpi" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                             <SectionHeader icon={BarChart3} title="KPIs" count={data?.kpis.length || 0} onAdd={() => openAddModal('kpi')} addLabel="Add KPI" />
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                                 <AnimatePresence>
                                     {data?.kpis.map((kpi) => (
                                         <EntityCard key={kpi.id} onEdit={() => openEditModal('kpi', kpi)} onDelete={() => handleDeleteKPI(kpi.id)}>
@@ -1308,8 +1518,9 @@ export default function ManagePage() {
                                     ))}
                                 </AnimatePresence>
                                 {data?.kpis.length === 0 && (
-                                    <div className="col-span-3 py-12 text-center text-slate-500">
-                                        No KPIs yet. Click &quot;Add KPI&quot; to create one.
+                                    <div className="col-span-3 py-16 flex flex-col items-center gap-3 text-center">
+                                        <p className="text-slate-400 text-sm">No KPIs yet.</p>
+                                        <button onClick={() => openAddModal('kpi')} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">+ Add KPI</button>
                                     </div>
                                 )}
                             </div>
@@ -1320,7 +1531,7 @@ export default function ManagePage() {
                     {activeTab === 'owner' && (
                         <motion.div key="owner" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                             <SectionHeader icon={Users} title="Owners / Team Members" count={data?.owners.length || 0} onAdd={() => openAddModal('owner')} addLabel="Add Owner" />
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                                 <AnimatePresence>
                                     {data?.owners.map((owner) => (
                                         <EntityCard key={owner.id} onEdit={() => openEditModal('owner', owner)} onDelete={() => handleDeleteOwner(owner.id)}>
@@ -1338,8 +1549,9 @@ export default function ManagePage() {
                                     ))}
                                 </AnimatePresence>
                                 {data?.owners.length === 0 && (
-                                    <div className="col-span-3 py-12 text-center text-slate-500">
-                                        No owners yet. Click &quot;Add Owner&quot; to create one.
+                                    <div className="col-span-3 py-16 flex flex-col items-center gap-3 text-center">
+                                        <p className="text-slate-400 text-sm">No team members yet.</p>
+                                        <button onClick={() => openAddModal('owner')} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">+ Add Team Member</button>
                                     </div>
                                 )}
                             </div>

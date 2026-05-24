@@ -1,7 +1,8 @@
 // Global State Store using Zustand - with API integration
 
+import { toast } from 'sonner';
 import { create } from 'zustand';
-import { ViewState, SelectedElement, HoveredElement, FilterState, XMatrixData, Relationship, RelationshipStrength, LongTermObjective, AnnualObjective, Initiative, KPI, Owner, EditModeState, MonthlyKPIData } from './types';
+import { ViewState, SelectedElement, HoveredElement, FilterState, XMatrixData, Relationship, RelationshipStrength, LongTermObjective, AnnualObjective, Initiative, KPI, Owner, EditModeState, MonthlyKPIData, EntityStatus } from './types';
 // App fetches real data via API - no mock data fallback
 import { computeVariance, deriveHealth, deriveTrend, isLowerBetter, getCurrentValue } from './kpi-calculations';
 
@@ -62,6 +63,7 @@ interface XMatrixStore {
   // Filter Actions
   setOwnerFilter: (owners: string[]) => void;
   setHealthFilter: (health: ('on-track' | 'at-risk' | 'off-track')[]) => void;
+  setStatusFilter: (statusFilter: EntityStatus | 'all') => void;
   clearFilters: () => void;
 
   // Relationship Actions
@@ -108,11 +110,11 @@ interface XMatrixStore {
   getActiveRelationships: () => Relationship[];
 }
 
-const initialViewState: ViewState = {
+export const initialViewState: ViewState = {
   rotation: 0,
   selectedElement: null,
   hoveredElement: null,
-  zoom: 0.75,
+  zoom: 1.0,
   isDarkMode: true,
   sidebarCollapsed: false,
   timeHorizon: 'current',
@@ -123,6 +125,7 @@ const initialFilterState: FilterState = {
   health: [],
   objectives: [],
   timeRange: null,
+  statusFilter: 'all',
 };
 
 const initialEditModeState: EditModeState = {
@@ -256,8 +259,10 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
             lastSavedAt: new Date(),
           },
         });
+        toast.success('Changes saved successfully');
       } catch (error) {
         console.error('Error saving changes:', error);
+        toast.error('Failed to save changes. Please try again.');
         throw error;
       }
     } else {
@@ -270,6 +275,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
           lastSavedAt: null,
         },
       });
+      toast.info('Changes discarded');
     }
   },
 
@@ -323,6 +329,9 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
 
   setHealthFilter: (health) =>
     set((state) => ({ filterState: { ...state.filterState, health } })),
+
+  setStatusFilter: (statusFilter) =>
+    set((state) => ({ filterState: { ...state.filterState, statusFilter } })),
 
   clearFilters: () => set({ filterState: initialFilterState }),
 
@@ -873,7 +882,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
     });
   },
 
-  getRelatedElements: (elementId: string, elementType: string) => {
+  getRelatedElements: (elementId: string, elementType: string) => { 
     const activeData = get().getActiveData();
     const { relationships } = activeData;
 
@@ -984,6 +993,19 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
 
     if (!activeElement) return new Set<string>(); 
 
+    const activeData = get().getActiveData();
+    const activeExists = [
+      ...activeData.longTermObjectives,
+      ...activeData.annualObjectives,
+      ...activeData.initiatives,
+      ...activeData.kpis,
+      ...activeData.owners,
+    ].some((e) => e.id === activeElement.id);
+
+    if (!activeExists) {
+      return new Set<string>();
+    }
+
     const highlighted = get().getRelatedElements(activeElement.id, activeElement.type);
 
     if (isHighlightDebugEnabled()) {
@@ -992,8 +1014,6 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
 
       if (signature !== lastHighlightDebugSignature) {
         lastHighlightDebugSignature = signature;
-
-        const activeData = get().getActiveData();
 
         const buckets = {
           lto: sortedIds.filter((id) => activeData.longTermObjectives.some((e) => e.id === id)),
@@ -1091,10 +1111,101 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
       currentValue: newCurrentValue,
     };
 
+    // Auto-mark linked initiatives as Done when KPI target is first reached
+    const targetReached = kpi.targetValue > 0 && newCurrentValue >= kpi.targetValue;
+    const wasAlreadyDone = kpi.targetValue > 0 && kpi.currentValue >= kpi.targetValue;
+
+    let initiativesToMarkDone: string[] = [];
+    let aosToMarkDone: string[] = [];
+    let ltosToMarkDone: string[] = [];
+
+    if (targetReached && !wasAlreadyDone) {
+      const currentState = get();
+      initiativesToMarkDone = currentState.data.relationships
+        .filter(r =>
+          (r.sourceId === kpiId && r.targetType === 'initiative') ||
+          (r.targetId === kpiId && r.sourceType === 'initiative')
+        )
+        .map(r => r.sourceType === 'initiative' ? r.sourceId : r.targetId)
+        .filter(id => {
+          const init = currentState.data.initiatives.find(i => i.id === id);
+          return init && (init.status ?? 'active') !== 'done';
+        });
+
+      // Cascade: Initiative done → AO done if ALL of AO's initiatives are now done
+      const allDoneInitiativeIds = new Set([
+        ...initiativesToMarkDone,
+        ...currentState.data.initiatives.filter(i => (i.status ?? 'active') === 'done').map(i => i.id),
+      ]);
+
+      const relatedAoIds = new Set<string>();
+      currentState.data.relationships.forEach(r => {
+        if (r.strength === 'none') return;
+        if (r.sourceType === 'initiative' && r.targetType === 'ao' && initiativesToMarkDone.includes(r.sourceId)) relatedAoIds.add(r.targetId);
+        if (r.targetType === 'initiative' && r.sourceType === 'ao' && initiativesToMarkDone.includes(r.targetId)) relatedAoIds.add(r.sourceId);
+      });
+
+      for (const aoId of relatedAoIds) {
+        const ao = currentState.data.annualObjectives.find(a => a.id === aoId);
+        if (!ao || (ao.status ?? 'active') === 'done') continue;
+        const initiativesForAo = currentState.data.relationships
+          .filter(r => r.strength !== 'none' && (
+            (r.sourceType === 'initiative' && r.targetType === 'ao' && r.targetId === aoId) ||
+            (r.targetType === 'initiative' && r.sourceType === 'ao' && r.sourceId === aoId)
+          ))
+          .map(r => r.sourceType === 'initiative' ? r.sourceId : r.targetId);
+        if (initiativesForAo.length > 0 && initiativesForAo.every(id => allDoneInitiativeIds.has(id))) {
+          aosToMarkDone.push(aoId);
+        }
+      }
+
+      // Cascade: AO done → LTO done if ALL of LTO's AOs are now done
+      const allDoneAoIds = new Set([
+        ...aosToMarkDone,
+        ...currentState.data.annualObjectives.filter(a => (a.status ?? 'active') === 'done').map(a => a.id),
+      ]);
+
+      const relatedLtoIds = new Set<string>();
+      currentState.data.relationships.forEach(r => {
+        if (r.strength === 'none') return;
+        if (r.sourceType === 'ao' && r.targetType === 'lto' && aosToMarkDone.includes(r.sourceId)) relatedLtoIds.add(r.targetId);
+        if (r.targetType === 'ao' && r.sourceType === 'lto' && aosToMarkDone.includes(r.targetId)) relatedLtoIds.add(r.sourceId);
+      });
+
+      for (const ltoId of relatedLtoIds) {
+        const lto = currentState.data.longTermObjectives.find(l => l.id === ltoId);
+        if (!lto || (lto.status ?? 'active') === 'done') continue;
+        const aosForLto = currentState.data.relationships
+          .filter(r => r.strength !== 'none' && (
+            (r.sourceType === 'ao' && r.targetType === 'lto' && r.targetId === ltoId) ||
+            (r.targetType === 'ao' && r.sourceType === 'lto' && r.sourceId === ltoId)
+          ))
+          .map(r => r.sourceType === 'ao' ? r.sourceId : r.targetId);
+        if (aosForLto.length > 0 && aosForLto.every(id => allDoneAoIds.has(id))) {
+          ltosToMarkDone.push(ltoId);
+        }
+      }
+    }
+
     set(state => ({
       data: {
         ...state.data,
         kpis: state.data.kpis.map(k => k.id === kpiId ? updatedKpi : k),
+        initiatives: initiativesToMarkDone.length > 0
+          ? state.data.initiatives.map(i =>
+              initiativesToMarkDone.includes(i.id) ? { ...i, status: 'done' as EntityStatus } : i
+            )
+          : state.data.initiatives,
+        annualObjectives: aosToMarkDone.length > 0
+          ? state.data.annualObjectives.map(a =>
+              aosToMarkDone.includes(a.id) ? { ...a, status: 'done' as EntityStatus } : a
+            )
+          : state.data.annualObjectives,
+        longTermObjectives: ltosToMarkDone.length > 0
+          ? state.data.longTermObjectives.map(l =>
+              ltosToMarkDone.includes(l.id) ? { ...l, status: 'done' as EntityStatus } : l
+            )
+          : state.data.longTermObjectives,
       },
     }));
 
@@ -1114,6 +1225,29 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
 
       if (!response.ok) {
         throw new Error('Failed to save KPI data');
+      }
+
+      // Persist initiative status changes (fire-and-forget)
+      for (const initId of initiativesToMarkDone) {
+        fetch(`/api/initiatives/${initId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'done' }),
+        }).catch(e => console.error('Failed to mark initiative done:', e));
+      }
+      for (const aoId of aosToMarkDone) {
+        fetch(`/api/objectives/annual/${aoId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'done' }),
+        }).catch(e => console.error('Failed to mark AO done:', e));
+      }
+      for (const ltoId of ltosToMarkDone) {
+        fetch(`/api/objectives/long-term/${ltoId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'done' }),
+        }).catch(e => console.error('Failed to mark LTO done:', e));
       }
     } catch (error) {
       console.error('Error persisting KPI data, rolling back:', error);
