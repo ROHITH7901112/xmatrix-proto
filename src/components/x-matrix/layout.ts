@@ -34,7 +34,7 @@ export const OWNER_GAP = 16;
 export const OWNER_HEADER_H = 24;
 
 /** Minimum cells to display per band so the matrix never fully collapses */
-export const MIN_CELLS = 3;
+export const MIN_CELLS = 0;
 
 /** Colors for grid lines */
 export const GRID_STROKE = 'rgb(51, 65, 85)';

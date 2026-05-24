@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS long_term_objectives (
   description TEXT,
   timeframe TEXT,
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
+  status TEXT CHECK(status IN ('active', 'done')) DEFAULT 'active',
   jira_epic_key TEXT,
   jira_epic_url TEXT,
   jira_last_synced INTEGER,
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS annual_objectives (
   year INTEGER,
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
   progress REAL DEFAULT 0,
+  status TEXT CHECK(status IN ('active', 'done')) DEFAULT 'active',
   jira_epic_key TEXT,
   jira_epic_url TEXT,
   jira_last_synced INTEGER,
@@ -67,6 +69,7 @@ CREATE TABLE IF NOT EXISTS initiatives (
   description TEXT,
   priority TEXT CHECK(priority IN ('blocker', 'critical', 'major', 'medium', 'trivial')),
   health TEXT CHECK(health IN ('on-track', 'at-risk', 'off-track')),
+  status TEXT CHECK(status IN ('active', 'done')) DEFAULT 'active',
   start_date TEXT,
   end_date TEXT,
   jira_issue_type TEXT CHECK(jira_issue_type IN ('story', 'task')),
@@ -92,7 +95,7 @@ CREATE TABLE IF NOT EXISTS kpis (
   owner_ids TEXT, -- JSON array stored as string
   start_date TEXT,
   end_date TEXT,
-  target_distribution TEXT CHECK(target_distribution IN ('equal', 'linear', 'front-loaded')) DEFAULT 'equal',
+  target_distribution TEXT CHECK(target_distribution IN ('equal', 'linear', 'front-loaded', 'custom')) DEFAULT 'equal',
   FOREIGN KEY (xmatrix_id) REFERENCES xmatrix(id) ON DELETE CASCADE
 );
 

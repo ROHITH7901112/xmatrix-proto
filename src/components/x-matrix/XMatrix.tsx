@@ -1,11 +1,17 @@
 'use client';
 
-import { useXMatrixStore } from '@/lib/store';
+import { useXMatrixStore, initialViewState } from '@/lib/store';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getHealthColor, getRelationshipColor, getRelationshipDotSize, cn } from '@/lib/utils';
-import { KPI, Owner, Relationship, EntityType } from '@/lib/types';
-import { useCallback, useMemo, useEffect } from 'react';
+import { Owner, Relationship, EntityType } from '@/lib/types';
+import {
+  getEffectiveAoStatus,
+  getEffectiveInitiativeStatus,
+  getEffectiveLtoStatus,
+  isKpiDone,
+} from '@/lib/status-cascade';
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { useXMatrixCRUD } from '@/hooks/useXMatrixCRUD';
 import { Modal, LTOForm, AOForm, InitiativeForm, KPIForm, OwnerForm } from '@/components/shared/EntityModals';
 import {
@@ -21,8 +27,10 @@ import {
 export function XMatrix() {
   const {
     viewState,
+    filterState,
     setHoveredElement,
     setSelectedElement,
+    setZoom,
     getHighlightedElements,
     toggleRelationship,
     fetchData,
@@ -33,6 +41,60 @@ export function XMatrix() {
 
   const data = getActiveData();
   const isEditMode = editModeState.mode === 'edit';
+
+  // Apply status filter in view mode only. KPIs have no persisted status —
+  // "done" derives from currentValue vs targetValue. Initiatives / AOs / LTOs
+  // cascade upward: each is effectively done when all its children are done
+  // Owners have no lifecycle status and are propagated from displayed initiatives for context.
+  const { statusFilter } = filterState;
+
+  const displayInitiatives = useMemo(
+    () => isEditMode || statusFilter === 'all'
+      ? data.initiatives
+      : data.initiatives.filter(
+          i => getEffectiveInitiativeStatus(i, data.kpis, data.relationships) === statusFilter,
+        ),
+    [data.initiatives, data.kpis, data.relationships, statusFilter, isEditMode],
+  );
+
+  const displayInitiativeIds = useMemo(
+    () => new Set(displayInitiatives.map(i => i.id)),
+    [displayInitiatives],
+  );
+
+  const displayKPIs = useMemo(() => {
+    if (isEditMode || statusFilter === 'all') return data.kpis;
+    return data.kpis.filter(k => (isKpiDone(k) ? 'done' : 'active') === statusFilter);
+  }, [data.kpis, statusFilter, isEditMode]);
+
+  const displayAOs = useMemo(
+    () => isEditMode || statusFilter === 'all'
+      ? data.annualObjectives
+      : data.annualObjectives.filter(
+          ao => getEffectiveAoStatus(ao, data.initiatives, data.kpis, data.relationships) === statusFilter,
+        ),
+    [data.annualObjectives, data.initiatives, data.kpis, data.relationships, statusFilter, isEditMode],
+  );
+
+  const displayOwners = useMemo(() => {
+    if (isEditMode || statusFilter === 'all') return data.owners;
+    const ids = new Set<string>();
+    data.relationships.forEach(r => {
+      if (r.strength === 'none') return;
+      if (r.sourceType === 'initiative' && r.targetType === 'owner' && displayInitiativeIds.has(r.sourceId)) ids.add(r.targetId);
+      if (r.targetType === 'initiative' && r.sourceType === 'owner' && displayInitiativeIds.has(r.targetId)) ids.add(r.sourceId);
+    });
+    return data.owners.filter(o => ids.has(o.id));
+  }, [data.owners, data.relationships, displayInitiativeIds, statusFilter, isEditMode]);
+
+  const displayLTOs = useMemo(
+    () => isEditMode || statusFilter === 'all'
+      ? data.longTermObjectives
+      : data.longTermObjectives.filter(
+          lto => getEffectiveLtoStatus(lto, data.annualObjectives, data.initiatives, data.kpis, data.relationships) === statusFilter,
+        ),
+    [data.longTermObjectives, data.annualObjectives, data.initiatives, data.kpis, data.relationships, statusFilter, isEditMode],
+  );
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -49,19 +111,82 @@ export function XMatrix() {
   const { rotation, zoom } = viewState;
   const highlightedElements = getHighlightedElements();
   const hasHighlight = highlightedElements.size > 0;
+  const dataReady = !isLoading && data.id !== '';
 
-  // ── Dimensions derived from data counts ──────────────────────────────
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const hasAutoZoomed = useRef(false);
+
+  const MIN_ZOOM = 0.6;
+  const MAX_ZOOM = 1.8;
+  const DEFAULT_ZOOM = initialViewState.zoom;
+
+  // ── Dimensions derived from filtered display counts ───────────────────
   const dim = useMemo(() => computeDimensions(
-    data.initiatives.length,
-    data.annualObjectives.length,
-    data.kpis.length,
-    data.longTermObjectives.length,
-    data.owners.length,
-  ), [data.initiatives.length, data.annualObjectives.length, data.kpis.length, data.longTermObjectives.length, data.owners.length]);
+    displayInitiatives.length,
+    displayAOs.length,
+    displayKPIs.length,
+    displayLTOs.length,
+    displayOwners.length,
+  ), [displayInitiatives.length, displayAOs.length, displayKPIs.length, displayLTOs.length, displayOwners.length]);
+
+  const maxEntityCount = useMemo(() => Math.max(
+    displayInitiatives.length,
+    displayAOs.length,
+    displayKPIs.length,
+    displayLTOs.length,
+    displayOwners.length,
+  ), [displayInitiatives.length, displayAOs.length, displayKPIs.length, displayLTOs.length, displayOwners.length]);
+
+  const ownerInitiativeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    displayOwners.forEach(o => counts.set(o.id, 0));
+    data.relationships.forEach(r => {
+      if (r.strength === 'none') return;
+      if (r.sourceType === 'initiative' && r.targetType === 'owner' && displayInitiativeIds.has(r.sourceId)) {
+        counts.set(r.targetId, (counts.get(r.targetId) ?? 0) + 1);
+      } else if (r.sourceType === 'owner' && r.targetType === 'initiative' && displayInitiativeIds.has(r.targetId)) {
+        counts.set(r.sourceId, (counts.get(r.sourceId) ?? 0) + 1);
+      }
+    });
+    return counts;
+  }, [displayOwners, displayInitiativeIds, data.relationships]);
+
+  const activeEntityIds = useMemo(() => new Set<string>([
+    ...displayLTOs.map((e) => e.id),
+    ...displayAOs.map((e) => e.id),
+    ...displayInitiatives.map((e) => e.id),
+    ...displayKPIs.map((e) => e.id),
+    ...displayOwners.map((e) => e.id),
+  ]), [
+    displayLTOs,
+    displayAOs,
+    displayInitiatives,
+    displayKPIs,
+    displayOwners,
+  ]);
+
+  const fitZoom = useMemo(() => {
+    if (!containerSize.width || !containerSize.height || !dim.totalW || !dim.totalH) return null;
+    const availableWidth = Math.max(containerSize.width - 16, 0);
+    const availableHeight = Math.max(containerSize.height - 16, 0);
+    const rawZoom = Math.min(availableWidth / dim.totalW, availableHeight / dim.totalH);
+    if (!Number.isFinite(rawZoom) || rawZoom <= 0) return null;
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(rawZoom.toFixed(2))));
+  }, [containerSize.height, containerSize.width, dim.totalH, dim.totalW]);
+
+  const autoZoom = useMemo(() => {
+    if (!dataReady) return null;
+    if (fitZoom === null) return null;
+    const scaleBoost = maxEntityCount <= 4 ? 1.2 : maxEntityCount <= 8 ? 1.1 : 1;
+    const scaled = fitZoom * scaleBoost;
+    const snapped = Math.round(scaled * 10) / 10;
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(snapped.toFixed(1))));
+  }, [dataReady, fitZoom, maxEntityCount]);
 
   // ── Reversed arrays for grid alignment (nearest-center first) ────────
-  const reversedInitiatives = useMemo(() => [...data.initiatives].reverse(), [data.initiatives]);
-  const reversedAOs = useMemo(() => [...data.annualObjectives].reverse(), [data.annualObjectives]);
+  const reversedInitiatives = useMemo(() => [...displayInitiatives].reverse(), [displayInitiatives]);
+  const reversedAOs = useMemo(() => [...displayAOs].reverse(), [displayAOs]);
 
   // ── Highlight helpers ────────────────────────────────────────────────
   const isHighlighted = useCallback((id: string) => { 
@@ -74,11 +199,52 @@ export function XMatrix() {
     return highlightedElements.has(id) ? 1 : 0.15;
   }, [hasHighlight, highlightedElements]);
 
-  const findRelationship = useCallback((a: string, b: string): Relationship | undefined => {
+  const findRelationship = useCallback((a: string, b: string): Relationship | undefined => { 
     return data.relationships.find(
       (r) => (r.sourceId === a && r.targetId === b) || (r.sourceId === b && r.targetId === a)
     );
   }, [data.relationships]);
+
+  useEffect(() => {
+    if (!dataReady) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const updateSize = () => {
+      setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    };
+
+    updateSize();
+
+    const observer = new ResizeObserver(() => updateSize());
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [dataReady]);
+
+  useEffect(() => {
+    if (hasAutoZoomed.current) return;
+    if (autoZoom === null) return;
+    if (Math.abs(viewState.zoom - initialViewState.zoom) > 0.001) {
+      hasAutoZoomed.current = true;
+      return;
+    }
+    setZoom(autoZoom);
+    hasAutoZoomed.current = true;
+  }, [autoZoom, setZoom, viewState.zoom]);
+
+  useEffect(() => {
+    const selectedId = viewState.selectedElement?.id;
+    const hoveredId = viewState.hoveredElement?.id;
+
+    if (selectedId && !activeEntityIds.has(selectedId)) {
+      setSelectedElement(null);
+    }
+
+    if (hoveredId && !activeEntityIds.has(hoveredId)) {
+      setHoveredElement(null);
+    }
+  }, [activeEntityIds, setHoveredElement, setSelectedElement, viewState.hoveredElement, viewState.selectedElement]);
 
   // Show loading screen while fetching data
   if (isLoading && data.id === '') {
@@ -96,7 +262,7 @@ export function XMatrix() {
   }
 
   return (
-    <div className="w-full h-full overflow-auto p-2">
+    <div ref={containerRef} className="w-full h-full overflow-auto p-2">
       <div className="min-w-max min-h-max flex items-center justify-center">
       <motion.svg
         width={dim.totalW * zoom}
@@ -140,7 +306,7 @@ export function XMatrix() {
         />
         {/* Top-Right: Init(rows) x KPI(cols) */}
         <RelGrid
-          rows={reversedInitiatives} cols={data.kpis}
+          rows={reversedInitiatives} cols={displayKPIs}
           rowType="initiative" colType="kpi"
           ox={dim.topRightX} oy={dim.topRightY}
           bandW={dim.rightW} bandH={dim.topH}
@@ -152,7 +318,7 @@ export function XMatrix() {
         />
         {/* Owner grid: Init(rows) x Owner(cols) */}
         <RelGrid
-          rows={reversedInitiatives} cols={data.owners}
+          rows={reversedInitiatives} cols={displayOwners}
           rowType="initiative" colType="owner"
           ox={dim.ownerGridX} oy={dim.ownerGridY}
           bandW={dim.ownerW} bandH={dim.topH}
@@ -164,7 +330,7 @@ export function XMatrix() {
         />
         {/* Bottom-Left: LTO(rows) x AO(cols) */}
         <RelGrid
-          rows={data.longTermObjectives} cols={reversedAOs}
+          rows={displayLTOs} cols={reversedAOs}
           rowType="lto" colType="ao"
           ox={dim.bottomLeftX} oy={dim.bottomLeftY}
           bandW={dim.leftW} bandH={dim.bottomH}
@@ -185,7 +351,7 @@ export function XMatrix() {
         {/* ============================================================= */}
 
         {/* INITIATIVES — horizontal cards in the top band */}
-        {[...data.initiatives].reverse().map((init, idx) => {
+        {[...displayInitiatives].reverse().map((init, idx) => {
           const row = (dim.displayInit - dim.initCount) + idx;
           const cy = dim.topLeftY + row * CELL + CELL / 2;
           return (
@@ -207,7 +373,7 @@ export function XMatrix() {
         })}
 
         {/* ANNUAL OBJECTIVES — vertical cards in the left band */}
-        {data.annualObjectives.map((ao, idx) => {
+        {displayAOs.map((ao, idx) => {
           const col = dim.displayAo - 1 - idx;
           const cx = dim.topLeftX + col * CELL + CELL / 2;
           return (
@@ -229,7 +395,7 @@ export function XMatrix() {
         })}
 
         {/* KPIs — vertical cards in the right band */}
-        {data.kpis.map((kpi, idx) => {
+        {displayKPIs.map((kpi, idx) => {
           const cx = dim.topRightX + idx * CELL + CELL / 2;
           return (
             <VertCard
@@ -250,7 +416,7 @@ export function XMatrix() {
         })}
 
         {/* LONG-TERM OBJECTIVES — horizontal cards in the bottom band */}
-        {data.longTermObjectives.map((lto, idx) => {
+        {displayLTOs.map((lto, idx) => {
           const cy = dim.bottomLeftY + idx * CELL + CELL / 2;
           return (
             <HorizCard
@@ -272,7 +438,7 @@ export function XMatrix() {
 
         {/* OWNERS — header + column labels */}
         <OwnerSection
-          owners={data.owners}
+          owners={displayOwners}
           dim={dim}
           rotation={rotation}
           isHighlighted={isHighlighted}
@@ -281,12 +447,13 @@ export function XMatrix() {
           setSelectedElement={setSelectedElement}
           openEditModal={openEditModal}
           isEditMode={isEditMode}
+          ownerInitiativeCounts={ownerInitiativeCounts}
         />
 
         {/* ============================================================= */}
         {/* EMPTY STATE PLACEHOLDERS                                       */}
         {/* ============================================================= */}
-        <EmptyStatePlaceholders dim={dim} data={data} rotation={rotation} />
+        <EmptyStatePlaceholders dim={dim} data={{ ...data, initiatives: displayInitiatives, annualObjectives: displayAOs, longTermObjectives: displayLTOs, kpis: displayKPIs, owners: displayOwners }} rotation={rotation} />
 
         {/* ============================================================= */}
         {/* ADD BUTTONS — only in edit mode                                */}
@@ -370,7 +537,7 @@ interface RelGridProps {
   onCellHover?: (hoveredElement: null) => void;
 }
 
-function RelGrid({ 
+function RelGrid({
   rows, cols, rowType, colType,
   ox, oy, bandW, bandH,
   actualRows, actualCols,
@@ -501,7 +668,19 @@ function HorizCard({ title, health, cy, dim, rotation, opacity, highlighted, onH
         <g transform={`rotate(${-rotation}, ${dim.centerX}, ${dim.centerY})`}>
           <foreignObject x={lx + 6} y={ly} width={lw - 12} height={lh}>
             <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium">
-              <span className="truncate text-center w-full">{title}</span>
+              <span
+                className="text-center w-full leading-tight overflow-hidden"
+                title={title}
+                style={{
+                  display: '-webkit-box',
+                  WebkitBoxOrient: 'vertical',
+                  WebkitLineClamp: 2,
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {title}
+              </span>
             </div>
           </foreignObject>
         </g>
@@ -558,7 +737,19 @@ function VertCard({ title, health, cx, dim, rotation, opacity, highlighted, onHo
           <g transform={`rotate(-90, ${cx}, ${dim.centerY})`}>
             <foreignObject x={cx - (lh - 10) / 2} y={dim.centerY - lw / 2} width={lh - 10} height={lw}>
               <div className="flex items-center justify-center w-full h-full text-white text-[10px] font-medium">
-                <span className="truncate text-center w-full">{title}</span>
+                <span
+                  className="text-center w-full leading-tight overflow-hidden"
+                  title={title}
+                  style={{
+                    display: '-webkit-box',
+                    WebkitBoxOrient: 'vertical',
+                    WebkitLineClamp: 2,
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {title}
+                </span>
               </div>
             </foreignObject>
           </g>
@@ -573,7 +764,7 @@ function VertCard({ title, health, cx, dim, rotation, opacity, highlighted, onHo
 // ============================================================================
 function OwnerSection({
   owners, dim, rotation, isHighlighted, getOpacity,
-  setHoveredElement, setSelectedElement, openEditModal, isEditMode,
+  setHoveredElement, setSelectedElement, openEditModal, isEditMode, ownerInitiativeCounts,
 }: {
   owners: Owner[];
   dim: MatrixDimensions;
@@ -584,14 +775,36 @@ function OwnerSection({
   setSelectedElement: (e: any) => void;
   openEditModal: (type: EntityType, item: any) => void;
   isEditMode: boolean;
+  ownerInitiativeCounts: Map<string, number>;
 }) {
-  const { ownerGridX, ownerGridY, ownerW, topH, centerX, centerY, half, bottomH } = dim;
+  const { ownerGridX, ownerGridY, ownerW, topH, centerX, centerY, bottomH } = dim;
+
+  const getOwnerNameColor = (count: number, highlighted: boolean) => {
+    if (count >= 5) return 'text-red-400';
+    if (count >= 3) return 'text-amber-400';
+    return highlighted ? 'text-blue-300' : 'text-slate-400';
+  };
 
   return (
     <g className="owners-section">
-      {/* Header */}
+      {/* Header background */}
       <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
         <rect x={ownerGridX} y={ownerGridY - OWNER_HEADER_H} width={ownerW} height={OWNER_HEADER_H} fill="rgb(51,65,85)" />
+        {/* Per-column overload tint in header */}
+        {owners.map((owner, idx) => {
+          const count = ownerInitiativeCounts.get(owner.id) ?? 0;
+          if (count < 3) return null;
+          return (
+            <rect
+              key={`tint-${owner.id}`}
+              x={ownerGridX + idx * CELL}
+              y={ownerGridY - OWNER_HEADER_H}
+              width={CELL}
+              height={OWNER_HEADER_H}
+              fill={count >= 5 ? 'rgba(239,68,68,0.18)' : 'rgba(251,191,36,0.15)'}
+            />
+          );
+        })}
         <text x={ownerGridX + ownerW / 2} y={ownerGridY - OWNER_HEADER_H / 2 + 4} textAnchor="middle" fill="rgb(148,163,184)" fontSize="10" fontWeight="600">Owners</text>
       </g>
 
@@ -607,6 +820,7 @@ function OwnerSection({
       {/* Owner name labels */}
       {owners.map((owner, idx) => {
         const cx = ownerGridX + idx * CELL + CELL / 2;
+        const count = ownerInitiativeCounts.get(owner.id) ?? 0;
         return (
           <motion.g
             key={owner.id}
@@ -615,15 +829,41 @@ function OwnerSection({
             onMouseLeave={() => setHoveredElement(null)}
             onClick={() => setSelectedElement({ id: owner.id, type: 'owner' })}
             onDoubleClick={isEditMode ? () => openEditModal('owner', owner) : undefined}
-            style={{ cursor: isEditMode ? 'pointer' : 'default' }}
+            style={{ cursor: 'pointer' }}
           >
             <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
               <g transform={`rotate(-90, ${cx}, ${centerY})`}>
-                <foreignObject x={cx - 40} y={centerY - 12} width={80} height={24}>
-                  <div className="flex items-center justify-center w-full h-full text-[9px] font-medium">
-                    <span className={cn('truncate text-center w-full', isHighlighted(owner.id) ? 'text-blue-300' : 'text-slate-400')}>
+                <foreignObject x={cx - 40} y={centerY - 18} width={80} height={36}>
+                  <div className="flex flex-col items-center justify-center w-full h-full" style={{ gap: '3px' }}>
+                    <span
+                      className={cn('text-center w-full leading-tight overflow-hidden text-[9px] font-medium', getOwnerNameColor(count, isHighlighted(owner.id)))}
+                      title={`${owner.name} — ${count} initiative${count !== 1 ? 's' : ''}`}
+                      style={{
+                        display: '-webkit-box',
+                        WebkitBoxOrient: 'vertical',
+                        WebkitLineClamp: 2,
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-word',
+                      }}
+                    >
                       {owner.name}
                     </span>
+                    {count > 0 && (
+                      <div
+                        className={cn(
+                          'flex-shrink-0 flex items-center justify-center rounded-full text-[7px] font-bold leading-none',
+                          count >= 5
+                            ? 'bg-red-500/25 text-red-300 ring-1 ring-red-500/60'
+                            : count >= 3
+                              ? 'bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/60'
+                              : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/40',
+                        )}
+                        style={{ width: 13, height: 13 }}
+                        title={`${count} initiative${count !== 1 ? 's' : ''}`}
+                      >
+                        {count}
+                      </div>
+                    )}
                   </div>
                 </foreignObject>
               </g>
@@ -670,11 +910,11 @@ function AddButtons({ dim, rotation, openAddModal }: { dim: MatrixDimensions; ro
   const buttonOffset = 14;
   const labelOffset = 10;
 
-  const buttons: { x: number; y: number; label: string; type: EntityType; vertical?: boolean }[] = [
+  const buttons: { x: number; y: number; label: string; type: EntityType; vertical?: boolean; labelOffset?: number }[] = [
     { x: centerX, y: topLeftY - 25, label: '+ Initiative', type: 'initiative' },
-    { x: topLeftX - buttonOffset, y: centerY, label: '+ AO', type: 'ao', vertical: true },
-    { x: topRightX + rightW + OWNER_GAP / 2, y: centerY, label: '+ KPI', type: 'kpi', vertical: true },
-    { x: ownerGridX + ownerW + buttonOffset, y: centerY, label: '+ Owner', type: 'owner', vertical: true },
+    { x: topLeftX - buttonOffset, y: centerY, label: '+ AO', type: 'ao', vertical: true, labelOffset: 12 },
+    { x: topRightX + rightW + OWNER_GAP / 2 + 8, y: centerY, label: '+ KPI', type: 'kpi', vertical: true, labelOffset: 18 },
+    { x: ownerGridX + ownerW + buttonOffset + 8, y: centerY, label: '+ Owner', type: 'owner', vertical: true, labelOffset: 18 },
     { x: centerX, y: bottomLeftY + bottomH + buttonOffset, label: '+ LTO', type: 'lto' },
   ];
 
@@ -694,8 +934,8 @@ function AddButtons({ dim, rotation, openAddModal }: { dim: MatrixDimensions; ro
             <line x1={btn.x - 5} y1={btn.y} x2={btn.x + 5} y2={btn.y} stroke="rgb(147,197,253)" strokeWidth={1.5} strokeLinecap="round" />
             <line x1={btn.x} y1={btn.y - 5} x2={btn.x} y2={btn.y + 5} stroke="rgb(147,197,253)" strokeWidth={1.5} strokeLinecap="round" />
             {btn.vertical ? (
-              <g transform={`rotate(-90, ${btn.x}, ${btn.y + sz / 2 + labelOffset})`}>
-                <text x={btn.x} y={btn.y + sz / 2 + labelOffset} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
+              <g transform={`rotate(-90, ${btn.x}, ${btn.y + sz / 2 + (btn.labelOffset ?? 10)})`}>
+                <text x={btn.x} y={btn.y + sz / 2 + (btn.labelOffset ?? 10)} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>
               </g>
             ) : (
               <text x={btn.x} y={btn.y + sz / 2 + labelOffset} textAnchor="middle" fill="rgb(147,197,253)" fontSize="8" fontWeight="500">{btn.label}</text>

@@ -79,12 +79,17 @@ function mapPriority(name?: string): 'blocker' | 'critical' | 'major' | 'medium'
   return 'medium';
 }
 
-function mapHealth(statusName?: string): 'on-track' | 'at-risk' | 'off-track' {
-  const value = (statusName ?? '').toLowerCase();
-  if (value.includes('done') || value.includes('closed') || value.includes('resolved')) return 'on-track';
-  if (value.includes('blocked') || value.includes('rejected')) return 'off-track';
-  if (value.includes('progress') || value.includes('review') || value.includes('todo') || value.includes('to do')) return 'at-risk';
-  return 'on-track';
+function mapPriorityToHealth(priority: 'blocker' | 'critical' | 'major' | 'medium' | 'trivial'): 'on-track' | 'at-risk' | 'off-track' {
+  switch (priority) {
+    case 'blocker':
+    case 'critical':
+      return 'off-track';
+    case 'major':
+      return 'at-risk';
+    case 'medium':
+    case 'trivial':
+      return 'on-track';
+  }
 }
 
 function toISODate(value: unknown): string | undefined {
@@ -286,11 +291,12 @@ export async function POST(request: NextRequest) {
     const existing = getInitiativeByJiraIssueKey(issue.key);
 
     if (existing) {
+      const priority = mapPriority(issue.fields?.priority?.name);
       const updated = updateInitiative(existing.id, {
         title,
         description,
-        priority: mapPriority(issue.fields?.priority?.name),
-        health: mapHealth(issue.fields?.status?.name),
+        priority,
+        health: mapPriorityToHealth(priority),
         startDate,
         endDate,
         jiraIssueType: issueType,
@@ -307,13 +313,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, action: 'updated', issueKey: issue.key, initiative: updated });
     }
 
+    const priority = mapPriority(issue.fields?.priority?.name);
     const created = createInitiative(xmatrixId, {
       id: `init-${crypto.randomUUID()}`,
       code: nextInitiativeCode(xmatrixId),
       title,
       description,
-      priority: mapPriority(issue.fields?.priority?.name),
-      health: mapHealth(issue.fields?.status?.name),
+      priority,
+      health: mapPriorityToHealth(priority),
       startDate: startDate ?? today,
       endDate: endDate ?? today,
       jiraIssueType: issueType,

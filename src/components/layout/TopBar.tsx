@@ -8,11 +8,12 @@ import {
   Moon,
   Sun,
   Share2,
-  Download,
+  FileSpreadsheet,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import { EditModeToggle } from '@/components/shared/EditModeToggle';
+import { ExportModal } from '@/components/shared/ExportModal';
 
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 1.8;
@@ -36,6 +37,7 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
   const activeData = getActiveData();
   const [isInputMode, setIsInputMode] = useState(false);
   const [inputValue, setInputValue] = useState(String(Math.round(viewState.zoom * 100)));
+  const [exportOpen, setExportOpen] = useState(false);
 
   const handleInputSubmit = () => {
     const value = parseInt(inputValue, 10);
@@ -55,6 +57,7 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
   };
 
   return (
+    <>
     <header className={cn('flex items-center justify-between h-14 px-6 backdrop-blur-sm border-b', colors.topbar)}>
       {/* Left Section - Strategy Info */}
       <div className="flex items-center gap-4">
@@ -68,9 +71,6 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
         </div>
       </div>
 
-      {/* Center Section - Controls */}
-      <div className="flex items-center gap-2">
-      </div>
       <div className="flex items-center gap-2">
         {/* View/Edit Mode Toggle */}
         <EditModeToggle />
@@ -122,12 +122,19 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
 
         <div className={cn('w-px h-6 mx-1', colors.border.light)} />
 
-        <button className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs font-medium', colors.text.secondary, 'hover:' + colors.text.primary, 'hover:' + colors.bg.tertiary)}>
+        <button
+          disabled
+          title="Sharing coming soon"
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium opacity-40 cursor-not-allowed', colors.text.secondary)}
+        >
           <Share2 className="w-3.5 h-3.5" />
           Share
         </button>
-        <button className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs font-medium', colors.text.secondary, 'hover:' + colors.text.primary, 'hover:' + colors.bg.tertiary)}>
-          <Download className="w-3.5 h-3.5" />
+        <button
+          onClick={() => setExportOpen(true)}
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-xs font-medium border border-transparent', colors.text.secondary, 'hover:text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/20')}
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5" />
           Export
         </button>
         <div className={cn('w-px h-6 mx-1', colors.border.light)} />
@@ -143,5 +150,7 @@ export function TopBar({ title, showRotation = false, showZoom = false }: TopBar
         </button>
       </div>
     </header>
+    <ExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} />
+    </>
   );
 }

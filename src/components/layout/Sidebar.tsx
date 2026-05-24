@@ -15,10 +15,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  LayoutDashboard,
 } from 'lucide-react';
 
 const navItems = [
   { id: 'x-matrix', label: 'X-Matrix', icon: LayoutGrid, href: '/' },
+  { id: 'dashboard', label: 'Executive Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   { id: 'manage', label: 'Manage Data', icon: Database, href: '/manage' },
   { id: 'bowling-chart', label: 'Bowling Chart', icon: BarChart3, href: '/bowling-chart' },
   { id: 'strategy-map', label: 'Strategy Map', icon: Map, href: '/strategy-map' },
@@ -42,8 +44,12 @@ export function Sidebar() {
       {/* Logo Section */}
       <div className={cn('flex items-center h-16 px-4 border-b', colors.border.light)}>
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600">
-            <LayoutGrid className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 flex items-center justify-center bg-slate-800 rounded">
+            <img
+              src="/logo.png"
+              alt="HARTS Logo"
+              style={{ width: '40px', height: '40px', objectFit: 'contain' }}
+            />
           </div>
           <AnimatePresence>
             {!collapsed && (
@@ -54,8 +60,8 @@ export function Sidebar() {
                 transition={{ duration: 0.15 }}
                 className="flex flex-col"
               >
-                <span className="text-sm font-semibold text-white tracking-wide">HOSHIN</span>
-                <span className="text-[10px] text-slate-400 tracking-widest">KANRI</span>
+                <span className="text-sm font-semibold text-white tracking-wide">HARTS</span>
+                <span className="text-[10px] text-slate-400 tracking-widest">X Matrix</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -125,7 +131,7 @@ export function Sidebar() {
       <div className="p-4 border-t border-slate-800">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-sm font-medium">
-            SC
+            CB
           </div>
           <AnimatePresence>
             {!collapsed && (

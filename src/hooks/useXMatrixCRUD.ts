@@ -1,5 +1,6 @@
  
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { useXMatrixStore } from '@/lib/store';
 import { LongTermObjective, AnnualObjective, Initiative, KPI, Owner, EntityType } from '@/lib/types';
 
@@ -53,21 +54,22 @@ export function useXMatrixCRUD() {
         setIsSaving(true);
         try {
             if (isEditMode) {
-                // In edit mode: add to draft state only
                 createLongTermObjective(lto);
+                toast.success('Long-term objective created');
                 closeModal();
             } else {
-                // In view mode: save to server directly
                 await fetch('/api/objectives/long-term', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ xmatrixId: data.id, ...lto }),
                 });
                 await store.fetchData();
+                toast.success('Long-term objective created');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to create long-term objective');
         } finally {
             setIsSaving(false);
         }
@@ -77,21 +79,22 @@ export function useXMatrixCRUD() {
         setIsSaving(true);
         try {
             if (isEditMode) {
-                // In edit mode: update draft state only
                 await updateLongTermObjective(lto.id, lto);
+                toast.success('Long-term objective updated');
                 closeModal();
             } else {
-                // In view mode: save to server directly
                 await fetch(`/api/objectives/long-term/${lto.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(lto),
                 });
                 await store.fetchData();
+                toast.success('Long-term objective updated');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to update long-term objective');
         } finally {
             setIsSaving(false);
         }
@@ -101,17 +104,18 @@ export function useXMatrixCRUD() {
         if (!confirm('Are you sure you want to delete this objective?')) return;
         try {
             if (isEditMode) {
-                // In edit mode: delete from draft state only
                 await deleteLongTermObjective(id);
+                toast.success('Long-term objective deleted');
                 closeModal();
             } else {
-                // In view mode: delete from server directly
                 await fetch(`/api/objectives/long-term/${id}`, { method: 'DELETE' });
                 await store.fetchData();
+                toast.success('Long-term objective deleted');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to delete long-term objective');
         }
     };
 
@@ -121,21 +125,22 @@ export function useXMatrixCRUD() {
         setIsSaving(true);
         try {
             if (isEditMode) {
-                // In edit mode: add to draft state only
                 createAnnualObjective(ao);
+                toast.success('Annual objective created');
                 closeModal();
             } else {
-                // In view mode: save to server directly
                 await fetch('/api/objectives/annual', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ xmatrixId: data.id, ...ao }),
                 });
                 await store.fetchData();
+                toast.success('Annual objective created');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to create annual objective');
         } finally {
             setIsSaving(false);
         }
@@ -146,6 +151,7 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await updateAnnualObjective(ao.id, ao);
+                toast.success('Annual objective updated');
                 closeModal();
             } else {
                 await fetch(`/api/objectives/annual/${ao.id}`, {
@@ -154,10 +160,12 @@ export function useXMatrixCRUD() {
                     body: JSON.stringify(ao),
                 });
                 await store.fetchData();
+                toast.success('Annual objective updated');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to update annual objective');
         } finally {
             setIsSaving(false);
         }
@@ -168,14 +176,17 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await deleteAnnualObjective(id);
+                toast.success('Annual objective deleted');
                 closeModal();
             } else {
                 await fetch(`/api/objectives/annual/${id}`, { method: 'DELETE' });
                 await store.fetchData();
+                toast.success('Annual objective deleted');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to delete annual objective');
         }
     };
 
@@ -185,21 +196,22 @@ export function useXMatrixCRUD() {
         setIsSaving(true);
         try {
             if (isEditMode) {
-                // In edit mode: add to draft state only
                 createInitiative(initiative);
+                toast.success('Initiative created');
                 closeModal();
             } else {
-                // In view mode: save to server directly
                 await fetch('/api/initiatives', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ xmatrixId: data.id, ...initiative }),
                 });
                 await store.fetchData();
+                toast.success('Initiative created');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to create initiative');
         } finally {
             setIsSaving(false);
         }
@@ -210,6 +222,7 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await updateInitiative(initiative.id, initiative);
+                toast.success('Initiative updated');
                 closeModal();
             } else {
                 await fetch(`/api/initiatives/${initiative.id}`, {
@@ -218,10 +231,12 @@ export function useXMatrixCRUD() {
                     body: JSON.stringify(initiative),
                 });
                 await store.fetchData();
+                toast.success('Initiative updated');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to update initiative');
         } finally {
             setIsSaving(false);
         }
@@ -232,14 +247,17 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await deleteInitiative(id);
+                toast.success('Initiative deleted');
                 closeModal();
             } else {
                 await fetch(`/api/initiatives/${id}`, { method: 'DELETE' });
                 await store.fetchData();
+                toast.success('Initiative deleted');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to delete initiative');
         }
     };
 
@@ -251,8 +269,9 @@ export function useXMatrixCRUD() {
             // monthlyData is already computed with distributed targets from the KPIForm
             const kpiWithMonthlyData = {
                 ...kpi,
-                // Ensure monthlyData is always present (fallback: 12 empty months)
-                monthlyData: kpi.monthlyData && kpi.monthlyData.length === 12
+                // Preserve computed distribution (can span multiple years).
+                // Fallback to 12 empty months only when no monthly data is provided.
+                monthlyData: kpi.monthlyData && kpi.monthlyData.length > 0
                     ? kpi.monthlyData
                     : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map(month => ({
                         month,
@@ -268,6 +287,7 @@ export function useXMatrixCRUD() {
                 for (const ownerId of kpiWithMonthlyData.ownerIds) {
                     store.toggleRelationship(kpiWithMonthlyData.id, 'kpi', ownerId, 'owner');
                 }
+                toast.success('KPI created');
                 closeModal();
             } else {
                 await fetch('/api/kpis', {
@@ -291,10 +311,12 @@ export function useXMatrixCRUD() {
                     });
                 }
                 await store.fetchData();
+                toast.success('KPI created');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to create KPI');
         } finally {
             setIsSaving(false);
         }
@@ -305,6 +327,7 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await updateKPI(kpi.id, kpi);
+                toast.success('KPI updated');
                 closeModal();
             } else {
                 await fetch(`/api/kpis/${kpi.id}`, {
@@ -313,10 +336,12 @@ export function useXMatrixCRUD() {
                     body: JSON.stringify(kpi),
                 });
                 await store.fetchData();
+                toast.success('KPI updated');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to update KPI');
         } finally {
             setIsSaving(false);
         }
@@ -327,14 +352,17 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await deleteKPI(id);
+                toast.success('KPI deleted');
                 closeModal();
             } else {
                 await fetch(`/api/kpis/${id}`, { method: 'DELETE' });
                 await store.fetchData();
+                toast.success('KPI deleted');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to delete KPI');
         }
     };
 
@@ -344,21 +372,22 @@ export function useXMatrixCRUD() {
         setIsSaving(true);
         try {
             if (isEditMode) {
-                // In edit mode: add to draft state only
                 createOwner(owner);
+                toast.success('Owner created');
                 closeModal();
             } else {
-                // In view mode: save to server directly
                 await fetch('/api/owners', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ xmatrixId: data.id, ...owner }),
                 });
                 await store.fetchData();
+                toast.success('Owner created');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to create owner');
         } finally {
             setIsSaving(false);
         }
@@ -369,6 +398,7 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await updateOwner(owner.id, owner);
+                toast.success('Owner updated');
                 closeModal();
             } else {
                 await fetch(`/api/owners/${owner.id}`, {
@@ -377,10 +407,12 @@ export function useXMatrixCRUD() {
                     body: JSON.stringify(owner),
                 });
                 await store.fetchData();
+                toast.success('Owner updated');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to update owner');
         } finally {
             setIsSaving(false);
         }
@@ -391,14 +423,17 @@ export function useXMatrixCRUD() {
         try {
             if (isEditMode) {
                 await deleteOwner(id);
+                toast.success('Owner deleted');
                 closeModal();
             } else {
                 await fetch(`/api/owners/${id}`, { method: 'DELETE' });
                 await store.fetchData();
+                toast.success('Owner deleted');
                 closeModal();
             }
         } catch (err) {
             console.error(err);
+            toast.error('Failed to delete owner');
         }
     };
 

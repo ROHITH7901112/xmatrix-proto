@@ -50,6 +50,9 @@ export async function POST(request: NextRequest) {
             health: data.health || 'on-track',
             trend: data.trend || 'stable',
             ownerIds: data.ownerIds || [],
+            startDate: data.startDate,
+            endDate: data.endDate,
+            targetDistribution: data.targetDistribution || 'equal',
             monthlyData: data.monthlyData || [],
         });
 
