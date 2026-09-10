@@ -267,6 +267,7 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
       }
     } else {
       // Discard draft changes — original data untouched
+      const hadUnsavedChanges = editModeState.hasUnsavedChanges;
       set({
         editModeState: {
           mode: 'view',
@@ -275,7 +276,9 @@ export const useXMatrixStore = create<XMatrixStore>((set, get) => ({
           lastSavedAt: null,
         },
       });
-      toast.info('Changes discarded');
+      if (hadUnsavedChanges) {
+        toast.info('Changes discarded');
+      }
     }
   },
 

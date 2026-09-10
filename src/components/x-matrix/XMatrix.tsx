@@ -152,6 +152,25 @@ export function XMatrix() {
     return counts;
   }, [displayOwners, displayInitiativeIds, data.relationships]);
 
+  const activeOwnerInitiativeCounts = useMemo(() => {
+    const activeIds = new Set(
+      data.initiatives
+        .filter(i => getEffectiveInitiativeStatus(i, data.kpis, data.relationships) !== 'done')
+        .map(i => i.id)
+    );
+    const counts = new Map<string, number>();
+    displayOwners.forEach(o => counts.set(o.id, 0));
+    data.relationships.forEach(r => {
+      if (r.strength === 'none') return;
+      if (r.sourceType === 'initiative' && r.targetType === 'owner' && activeIds.has(r.sourceId)) {
+        counts.set(r.targetId, (counts.get(r.targetId) ?? 0) + 1);
+      } else if (r.sourceType === 'owner' && r.targetType === 'initiative' && activeIds.has(r.targetId)) {
+        counts.set(r.sourceId, (counts.get(r.sourceId) ?? 0) + 1);
+      }
+    });
+    return counts;
+  }, [displayOwners, data.initiatives, data.kpis, data.relationships]);
+
   const activeEntityIds = useMemo(() => new Set<string>([
     ...displayLTOs.map((e) => e.id),
     ...displayAOs.map((e) => e.id),
@@ -448,6 +467,7 @@ export function XMatrix() {
           openEditModal={openEditModal}
           isEditMode={isEditMode}
           ownerInitiativeCounts={ownerInitiativeCounts}
+          activeOwnerInitiativeCounts={activeOwnerInitiativeCounts}
         />
 
         {/* ============================================================= */}
@@ -764,7 +784,7 @@ function VertCard({ title, health, cx, dim, rotation, opacity, highlighted, onHo
 // ============================================================================
 function OwnerSection({
   owners, dim, rotation, isHighlighted, getOpacity,
-  setHoveredElement, setSelectedElement, openEditModal, isEditMode, ownerInitiativeCounts,
+  setHoveredElement, setSelectedElement, openEditModal, isEditMode, ownerInitiativeCounts, activeOwnerInitiativeCounts,
 }: {
   owners: Owner[];
   dim: MatrixDimensions;
@@ -776,35 +796,16 @@ function OwnerSection({
   openEditModal: (type: EntityType, item: any) => void;
   isEditMode: boolean;
   ownerInitiativeCounts: Map<string, number>;
+  activeOwnerInitiativeCounts: Map<string, number>;
 }) {
   const { ownerGridX, ownerGridY, ownerW, topH, centerX, centerY, bottomH } = dim;
-
-  const getOwnerNameColor = (count: number, highlighted: boolean) => {
-    if (count >= 5) return 'text-red-400';
-    if (count >= 3) return 'text-amber-400';
-    return highlighted ? 'text-blue-300' : 'text-slate-400';
-  };
+  const maxCount = Math.max(1, ...Array.from(ownerInitiativeCounts.values()));
 
   return (
     <g className="owners-section">
       {/* Header background */}
       <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
         <rect x={ownerGridX} y={ownerGridY - OWNER_HEADER_H} width={ownerW} height={OWNER_HEADER_H} fill="rgb(51,65,85)" />
-        {/* Per-column overload tint in header */}
-        {owners.map((owner, idx) => {
-          const count = ownerInitiativeCounts.get(owner.id) ?? 0;
-          if (count < 3) return null;
-          return (
-            <rect
-              key={`tint-${owner.id}`}
-              x={ownerGridX + idx * CELL}
-              y={ownerGridY - OWNER_HEADER_H}
-              width={CELL}
-              height={OWNER_HEADER_H}
-              fill={count >= 5 ? 'rgba(239,68,68,0.18)' : 'rgba(251,191,36,0.15)'}
-            />
-          );
-        })}
         <text x={ownerGridX + ownerW / 2} y={ownerGridY - OWNER_HEADER_H / 2 + 4} textAnchor="middle" fill="rgb(148,163,184)" fontSize="10" fontWeight="600">Owners</text>
       </g>
 
@@ -821,6 +822,11 @@ function OwnerSection({
       {owners.map((owner, idx) => {
         const cx = ownerGridX + idx * CELL + CELL / 2;
         const count = ownerInitiativeCounts.get(owner.id) ?? 0;
+        const activeCount = activeOwnerInitiativeCounts.get(owner.id) ?? 0;
+        const doneCount = count - activeCount;
+        const activePct = Math.round((activeCount / maxCount) * 100);
+        const donePct   = Math.round((doneCount   / maxCount) * 100);
+        const activeColor = activeCount >= 5 ? 'rgb(239,68,68)' : activeCount >= 3 ? 'rgb(245,158,11)' : 'rgb(59,130,246)';
         return (
           <motion.g
             key={owner.id}
@@ -833,11 +839,11 @@ function OwnerSection({
           >
             <g transform={`rotate(${-rotation}, ${centerX}, ${centerY})`}>
               <g transform={`rotate(-90, ${cx}, ${centerY})`}>
-                <foreignObject x={cx - 40} y={centerY - 18} width={80} height={36}>
-                  <div className="flex flex-col items-center justify-center w-full h-full" style={{ gap: '3px' }}>
+                <foreignObject x={cx - 40} y={centerY - 20} width={80} height={40}>
+                  <div className="flex flex-col items-center justify-center w-full h-full" style={{ gap: '4px' }}>
                     <span
-                      className={cn('text-center w-full leading-tight overflow-hidden text-[9px] font-medium', getOwnerNameColor(count, isHighlighted(owner.id)))}
-                      title={`${owner.name} — ${count} initiative${count !== 1 ? 's' : ''}`}
+                      className={cn('text-center w-full leading-tight overflow-hidden text-[9px] font-medium', isHighlighted(owner.id) ? 'text-blue-300' : 'text-slate-400')}
+                      title={`${activeCount} active · ${doneCount} done`}
                       style={{
                         display: '-webkit-box',
                         WebkitBoxOrient: 'vertical',
@@ -848,22 +854,15 @@ function OwnerSection({
                     >
                       {owner.name}
                     </span>
-                    {count > 0 && (
-                      <div
-                        className={cn(
-                          'flex-shrink-0 flex items-center justify-center rounded-full text-[7px] font-bold leading-none',
-                          count >= 5
-                            ? 'bg-red-500/25 text-red-300 ring-1 ring-red-500/60'
-                            : count >= 3
-                              ? 'bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/60'
-                              : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/40',
-                        )}
-                        style={{ width: 13, height: 13 }}
-                        title={`${count} initiative${count !== 1 ? 's' : ''}`}
-                      >
-                        {count}
-                      </div>
-                    )}
+                    {/* Two-segment bar: active (load color) + done (green) */}
+                    <div
+                      className="w-full rounded-full overflow-hidden flex"
+                      style={{ height: 3, background: 'rgba(71,85,105,0.5)' }}
+                      title={`${activeCount} active · ${doneCount} done`}
+                    >
+                      <div style={{ width: `${activePct}%`, height: '100%', background: activeColor, transition: 'width 0.3s ease', flexShrink: 0 }} />
+                      <div style={{ width: `${donePct}%`,   height: '100%', background: 'rgba(52,211,153,0.6)', transition: 'width 0.3s ease', flexShrink: 0 }} />
+                    </div>
                   </div>
                 </foreignObject>
               </g>

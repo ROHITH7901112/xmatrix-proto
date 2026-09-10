@@ -395,7 +395,7 @@ function computeDistributedTargets(
   startDate: string,
   endDate: string,
   distribution: TargetDistribution,
-  currentValue: number = 0,
+  existingMonthlyData: { month: string; year?: number; target: number }[] = [],
 ): MonthlyKPIData[] {
     const activeMonths = getActiveMonths(startDate, endDate);
     if (activeMonths.length === 0) return [];
@@ -421,14 +421,17 @@ function computeDistributedTargets(
         .filter(({ year, monthIndex }) => year > currentYear || (year === currentYear && monthIndex >= currentMonthIdx))
         .map(({ idx }) => idx);
 
-    const remainingTarget = Math.max(0, totalTarget - currentValue);
-    const futureTargets = weightedSplit(remainingTarget, futureIndices.map(i => allWeights[i]));
+    // Past months: preserve existing targets so historical data is unchanged
+    const existingByKey = new Map(existingMonthlyData.map(m => [getMonthlyRowKey(m.year, m.month), m.target]));
+    const pastTargets = pastIndices.map(i => {
+        const m = activeMonths[i];
+        return existingByKey.get(getMonthlyRowKey(m.year, m.month)) ?? existingByKey.get(m.month) ?? 0;
+    });
+    const pastTargetSum = pastTargets.reduce((a, b) => a + b, 0);
+    const remainingTarget = Math.max(0, totalTarget - pastTargetSum);
 
-    const pastWeightTotal = pastIndices.reduce((sum, i) => sum + allWeights[i], 0);
-    const futureWeightTotal = futureIndices.reduce((sum, i) => sum + allWeights[i], 0);
-    const allWeightTotal = pastWeightTotal + futureWeightTotal;
-    const pastTargetBudget = allWeightTotal > 0 ? (totalTarget * pastWeightTotal) / allWeightTotal : 0;
-    const pastTargets = weightedSplit(pastTargetBudget, pastIndices.map(i => allWeights[i]));
+    // Future months: distribute remaining budget using weights relative to position in ALL active months
+    const futureTargets = weightedSplit(remainingTarget, futureIndices.map(i => allWeights[i]));
 
     const targetByIndex = new Map<number, number>();
     pastIndices.forEach((i, pos) => targetByIndex.set(i, pastTargets[pos] ?? 0));
@@ -555,7 +558,7 @@ export function KPIForm({
             formData.startDate || '',
             formData.endDate || '',
             formData.targetDistribution || 'equal',
-            formData.currentValue,
+            formData.monthlyData,
         );
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -586,7 +589,7 @@ export function KPIForm({
                     formData.startDate || '',
                     formData.endDate || '',
                     formData.targetDistribution || 'equal',
-                    formData.currentValue,
+                    initialData?.monthlyData ?? [],
                 );
 
                 const existingByMonth = new Map(

@@ -78,7 +78,7 @@ function OwnerDetailsModal({ owner, onClose }: { owner: Owner; onClose: () => vo
   const doneInitiatives     = allOwnerInitiatives.filter(i => effectiveStatus(i) === 'done');
   const ownerKPIs = data.kpis.filter(k => k.ownerIds.includes(owner.id));
 
-  const totalCount = allOwnerInitiatives.length;
+  const totalCount = activeInitiatives.length;
   const loadLevel = totalCount >= 5 ? 'critical' : totalCount >= 3 ? 'high' : 'normal';
 
   const loadConfig = {

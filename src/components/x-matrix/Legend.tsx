@@ -39,6 +39,18 @@ export function Legend() {
         </div>
       </div>
 
+      <div className={cn('w-px h-4', isLight ? 'bg-slate-300' : 'bg-slate-800')} />
+
+      {/* Owner Workload Legend */}
+      <div className="flex items-center gap-3">
+        <span className={cn('text-[10px] font-semibold uppercase tracking-wider', isLight ? 'text-slate-600' : 'text-slate-500')}>Owner Workload</span>
+        <div className="flex items-center gap-2">
+          <WorkloadBar color="rgb(59,130,246)"       label="Active ≤2" isLight={isLight} />
+          <WorkloadBar color="rgb(245,158,11)"        label="Active 3–4" isLight={isLight} />
+          <WorkloadBar color="rgb(239,68,68)"         label="Active 5+" isLight={isLight} />
+          <WorkloadBar color="rgba(52,211,153,0.65)"  label="Done" isLight={isLight} />
+        </div>
+      </div>
 
     </motion.div>
   );
@@ -52,6 +64,15 @@ function LegendItem({ color, label, isLight }: { color: string; label: string; i
         className="w-2 h-2 rounded-full"
         style={{ backgroundColor: color }}
       />
+      <span className={cn('text-[10px]', isLight ? 'text-slate-600' : 'text-slate-400')}>{label}</span>
+    </div>
+  );
+}
+
+function WorkloadBar({ color, label, isLight }: { color: string; label: string; isLight: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="rounded-full" style={{ width: 16, height: 3, backgroundColor: color }} />
       <span className={cn('text-[10px]', isLight ? 'text-slate-600' : 'text-slate-400')}>{label}</span>
     </div>
   );

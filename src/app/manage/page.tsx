@@ -534,7 +534,7 @@ function computeDistributedTargets(
     startDate: string,
     endDate: string,
     distribution: TargetDistribution,
-    currentValue: number = 0,
+    existingMonthlyData: { month: string; year?: number; target: number }[] = [],
 ): { year?: number; month: string; target: number; actual: number | null; variance: null }[] {
     if (!startDate || !endDate) {
         const perMonth = totalTarget / 12;
@@ -552,51 +552,34 @@ function computeDistributedTargets(
         return ALL_MONTHS_BC.map(month => ({ month, target: 0, actual: null, variance: null }));
     }
     const n = activeIndices.length;
-    let weights: number[];
-    switch (distribution) {
-        case 'linear': weights = activeIndices.map((_, idx) => idx + 1); break;
-        case 'front-loaded': weights = activeIndices.map((_, idx) => n - idx); break;
-        default: weights = activeIndices.map(() => 1);
-    }
-    const totalWeight = weights.reduce((a, b) => a + b, 0);
-    // Split active months into past (already happened) and future (from today onwards)
-    // Past months: get reference targets; actuals left null for manual entry
-    // Future months: only carry the REMAINING target (totalTarget - currentValue)
+
     const now = new Date();
-    const currentMonthIdx = now.getMonth(); // 0=Jan, 1=Feb, ... 11=Dec
+    const currentMonthIdx = now.getMonth();
 
     const pastActiveIndices = activeIndices.filter(idx => idx < currentMonthIdx);
     const futureActiveIndices = activeIndices.filter(idx => idx >= currentMonthIdx);
 
-    const remainingTarget = Math.max(0, totalTarget - currentValue);
+    // Past months: preserve existing targets so historical data is unchanged
+    const existingByMonth = new Map(existingMonthlyData.map(m => [m.month, m.target]));
+    const pastTargets = pastActiveIndices.map(mi => existingByMonth.get(ALL_MONTHS_BC[mi]) ?? 0);
+    const pastTargetSum = pastTargets.reduce((a, b) => a + b, 0);
+    const remainingTarget = Math.max(0, totalTarget - pastTargetSum);
 
-    // Weights for future months (distribute remaining target)
+    // Future months: distribute remaining budget using weights relative to their position in ALL active months
     const futureWeights = futureActiveIndices.map((_, i) => {
-      const posInAll = activeIndices.indexOf(futureActiveIndices[i]);
-      if (distribution === 'linear') return posInAll + 1;
-      if (distribution === 'front-loaded') return n - posInAll;
-      return 1;
+        const posInAll = activeIndices.indexOf(futureActiveIndices[i]);
+        if (distribution === 'linear') return posInAll + 1;
+        if (distribution === 'front-loaded') return n - posInAll;
+        return 1;
     });
     const futureTotalWeight = futureWeights.reduce((a, b) => a + b, 0) || 1;
     const futureTargets = futureWeights.map(w =>
-      Math.round((remainingTarget * w / futureTotalWeight) * 100) / 100
+        Math.round((remainingTarget * w / futureTotalWeight) * 100) / 100
     );
-    const futureDiff = remainingTarget - futureTargets.reduce((a, b) => a + b, 0);
+    const futureDiff = Math.round((remainingTarget - futureTargets.reduce((a, b) => a + b, 0)) * 100) / 100;
     if (futureTargets.length > 0) {
-      futureTargets[futureTargets.length - 1] = Math.round((futureTargets[futureTargets.length - 1] + futureDiff) * 100) / 100;
+        futureTargets[futureTargets.length - 1] = Math.round((futureTargets[futureTargets.length - 1] + futureDiff) * 100) / 100;
     }
-
-    // Weights for past months (share of total target, reference only)
-    const pastWeightsArr = pastActiveIndices.map((_, i) => {
-      const posInAll = activeIndices.indexOf(pastActiveIndices[i]);
-      if (distribution === 'linear') return posInAll + 1;
-      if (distribution === 'front-loaded') return n - posInAll;
-      return 1;
-    });
-    const pastTotalWeight2 = pastWeightsArr.reduce((a, b) => a + b, 0) || 1;
-    const pastTargets = pastWeightsArr.map(w =>
-      Math.round((totalTarget * w / (pastTotalWeight2 + futureTotalWeight)) * 100) / 100
-    );
 
     const targetMap = new Map<number, number>();
     pastActiveIndices.forEach((mi, i) => targetMap.set(mi, pastTargets[i] ?? 0));
@@ -604,7 +587,7 @@ function computeDistributedTargets(
     return ALL_MONTHS_BC.map((month, idx) => ({
         month,
         target: targetMap.get(idx) ?? 0,
-        actual: null, // Always null — user enters actuals manually in the Bowling Chart
+        actual: null,
         variance: null,
     }));
 }
@@ -771,7 +754,7 @@ function KPIForm({
             formData.startDate || '',
             formData.endDate || '',
             formData.targetDistribution || 'equal',
-            formData.currentValue,
+            formData.monthlyData,
         );
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -802,7 +785,7 @@ function KPIForm({
                     formData.startDate || '',
                     formData.endDate || '',
                     formData.targetDistribution || 'equal',
-                    formData.currentValue,
+                    initialData?.monthlyData ?? [],
                 );
 
                 const existingByMonth = new Map(
